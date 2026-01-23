@@ -1,0 +1,49 @@
+apiVersion: fis.fis.dksshddl.dev/v1alpha1
+kind: ExperimentTemplate
+metadata:
+  name: cpu-stress-experiment
+  namespace: default
+spec:
+  description: "Inject increasing CPU load on nginx pods"
+  
+  targets:
+  - name: nginx-pods
+    namespace: default
+    labelSelector:
+      app: nginx
+    selectionMode: ALL
+  
+  actions:
+  - name: low-cpu-stress
+    type: pod-cpu-stress
+    duration: 5m
+    target: nginx-pods
+    parameters:
+      percent: "80"
+  
+  - name: medium-cpu-stress
+    type: pod-cpu-stress
+    duration: 5m
+    target: nginx-pods
+    parameters:
+      percent: "90"
+    startAfter:
+    - low-cpu-stress
+  
+  - name: high-cpu-stress
+    type: pod-cpu-stress
+    duration: 5m
+    target: nginx-pods
+    parameters:
+      percent: "100"
+    startAfter:
+    - medium-cpu-stress
+  
+  stopConditions:
+  - source: none
+  
+  tags:
+  - key: Name
+    value: "EKS Stress: CPU"
+  - key: Environment
+    value: "test"

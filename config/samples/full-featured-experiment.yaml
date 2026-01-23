@@ -1,0 +1,61 @@
+apiVersion: fis.fis.dksshddl.dev/v1alpha1
+kind: ExperimentTemplate
+metadata:
+  name: full-featured-experiment
+  namespace: default
+spec:
+  description: "Full-featured EKS chaos experiment with all options"
+  
+  targets:
+  - name: nginx-pods
+    namespace: default
+    labelSelector:
+      app: nginx
+    selectionMode: ALL
+    targetContainerName: nginx
+  
+  actions:
+  - name: cpu-stress-test
+    description: "Apply CPU stress to nginx pods"
+    type: pod-cpu-stress
+    duration: 5m
+    target: nginx-pods
+    parameters:
+      percent: "50"
+      workers: "2"
+      maxErrorsPercent: "5"
+  
+  stopConditions:
+  - source: cloudwatch-alarm
+    value: "<cloudwatch-alarm-arn>"
+  
+  experimentOptions:
+    accountTargeting: single-account
+    emptyTargetResolutionMode: fail
+  
+  logConfiguration:
+    logSchemaVersion: 2
+    cloudWatchLogsConfiguration:
+      logGroupArn: "<log-group-arn>"
+    s3Configuration:
+      bucketName: "<bucket-name>"
+      prefix: "<prefix>"
+  
+  experimentReportConfiguration:
+    preExperimentDuration: 20m
+    postExperimentDuration: 20m
+    dataSources:
+      cloudWatchDashboards:
+      - dashboardIdentifier: "<dashboard-arn>"
+    outputs:
+      s3Configuration:
+        bucketName: "<bucket-name>"
+        prefix: "<prefix>"
+  
+  tags:
+  - key: Name
+    value: "Full Featured Test"
+  - key: Environment
+    value: "production"
+  - key: Team
+    value: "platform"

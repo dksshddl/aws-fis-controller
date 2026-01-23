@@ -1,0 +1,68 @@
+{
+        "targets": {
+                "EksStressNetworkTarget": {
+                        "resourceType": "aws:eks:pod",
+                        "selectionMode": "ALL",
+                        "parameters": {
+                                "clusterIdentifier": "",
+                                "namespace": "default",
+                                "selectorType": "labelSelector",
+                                "selectorValue": "app=nginx"
+                        }
+                }
+        },
+        "actions": {
+                "EksStressNetworkAction-010-Latency": {
+                        "actionId": "aws:eks:pod-network-latency",
+                        "parameters": {
+                                "delayMilliseconds": "200",
+                                "duration": "PT5M",
+                                "kubernetesServiceAccount": "default"
+                        },
+                        "targets": {
+                                "Pods": "EksStressNetworkTarget"
+                        }
+                },
+                "EksStressNetworkAction-020-Latency": {
+                        "actionId": "aws:eks:pod-network-latency",
+                        "parameters": {
+                                "delayMilliseconds": "400",
+                                "duration": "PT5M",
+                                "kubernetesServiceAccount": "default"
+                        },
+                        "targets": {
+                                "Pods": "EksStressNetworkTarget"
+                        },
+                        "startAfter": [
+                                "EksStressNetworkAction-010-Latency"
+                        ]
+                },
+                "EksStressNetworkAction-030-Latency": {
+                        "actionId": "aws:eks:pod-network-latency",
+                        "parameters": {
+                                "delayMilliseconds": "600",
+                                "duration": "PT5M",
+                                "kubernetesServiceAccount": "default"
+                        },
+                        "targets": {
+                                "Pods": "EksStressNetworkTarget"
+                        },
+                        "startAfter": [
+                                "EksStressNetworkAction-020-Latency"
+                        ]
+                }
+        },
+        "stopConditions": [
+                {
+                        "source": "none"
+                }
+        ],
+        "roleArn": "",
+        "logConfiguration": {
+                "logSchemaVersion": 2
+        },
+        "tags": {
+                "Name": "EKS Stress: Network Latency"
+        },
+        "description": "Inject increasing network latency on one or more EKS pods, targeting based on cluster and application label"
+}

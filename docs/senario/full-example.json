@@ -1,0 +1,74 @@
+{
+    "actions": {
+        "ttest": {
+            "actionId": "aws:eks:pod-cpu-stress",
+            "description": "test",
+            "parameters": {
+                "duration": "PT5M",
+                "fisPodContainerImage": "test",
+                "fisPodSecurityPolicy": "privileged",
+                "kubernetesServiceAccount": "test",
+                "maxErrorsPercent": "5",
+                "percent": "50",
+                "workers": "2"
+            },
+            "targets": {
+                "Pods": "Pods-Target-1"
+            }
+        }
+    },
+    "description": "eks",
+    "experimentOptions": {
+        "accountTargeting": "single-account",
+        "emptyTargetResolutionMode": "fail"
+    },
+    "experimentReportConfiguration": {
+        "dataSources": {
+            "cloudWatchDashboards": [
+                {
+                    "dashboardIdentifier": "arn:aws:cloudwatch::xxx:dashboard/<dashboard-name>"
+                }
+            ]
+        },
+        "outputs": {
+            "s3Configuration": {
+                "bucketName": "<bucket-name>"
+            }
+        },
+        "postExperimentDuration": "PT20M",
+        "preExperimentDuration": "PT20M"
+    },
+    "logConfiguration": {
+        "cloudWatchLogsConfiguration": {
+            "logGroupArn": "<logGroupArn>"
+        },
+        "logSchemaVersion": 2,
+        "s3Configuration": {
+            "bucketName": "<bucket-name>",
+            "prefix": "<prefix>"
+        }
+    },
+    "roleArn": "<role-arn>",
+    "stopConditions": [
+        {
+            "source": "aws:cloudwatch:alarm",
+            "value": "<cloudwatch-alarm-arn>"
+        }
+    ],
+    "tags": {
+        "Name": "test"
+    },
+    "targets": {
+        "Pods-Target-1": {
+            "parameters": {
+                "clusterIdentifier": "<cluster-name>",
+                "namespace": "default",
+                "selectorType": "labelSelector",
+                "selectorValue": "app",
+                "targetContainerName": "nginx"
+            },
+            "resourceType": "aws:eks:pod",
+            "selectionMode": "ALL"
+        }
+    }
+}

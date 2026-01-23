@@ -1,0 +1,4 @@
+## Append samples of your project ##
+resources:
+- fis_v1alpha1_experimenttemplate.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

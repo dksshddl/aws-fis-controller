@@ -1,0 +1,68 @@
+{
+        "description": "Inject increasing memory load on one or more EKS pods, targeting based on cluster and application label",
+        "targets": {
+                "EksStressMemoryTarget": {
+                        "resourceType": "aws:eks:pod",
+                        "selectionMode": "ALL",
+                        "parameters": {
+                                "clusterIdentifier": "",
+                                "namespace": "default",
+                                "selectorType": "labelSelector",
+                                "selectorValue": "app=nginx"
+                        }
+                }
+        },
+        "actions": {
+                "EksStressMemoryAction-010-Memory": {
+                        "actionId": "aws:eks:pod-memory-stress",
+                        "parameters": {
+                                "duration": "PT5M",
+                                "kubernetesServiceAccount": "default",
+                                "percent": "80"
+                        },
+                        "targets": {
+                                "Pods": "EksStressMemoryTarget"
+                        }
+                },
+                "EksStressMemoryAction-020-Memory": {
+                        "actionId": "aws:eks:pod-memory-stress",
+                        "parameters": {
+                                "duration": "PT5M",
+                                "kubernetesServiceAccount": "default",
+                                "percent": "90"
+                        },
+                        "targets": {
+                                "Pods": "EksStressMemoryTarget"
+                        },
+                        "startAfter": [
+                                "EksStressMemoryAction-010-Memory"
+                        ]
+                },
+                "EksStressMemoryAction-030-Memory": {
+                        "actionId": "aws:eks:pod-memory-stress",
+                        "parameters": {
+                                "duration": "PT5M",
+                                "kubernetesServiceAccount": "default",
+                                "percent": "100"
+                        },
+                        "targets": {
+                                "Pods": "EksStressMemoryTarget"
+                        },
+                        "startAfter": [
+                                "EksStressMemoryAction-020-Memory"
+                        ]
+                }
+        },
+        "stopConditions": [
+                {
+                        "source": "none"
+                }
+        ],
+        "roleArn": "",
+        "tags": {
+                "Name": "EKS Stress: Memory"
+        },
+        "logConfiguration": {
+                "logSchemaVersion": 2
+        }
+}

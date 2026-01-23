@@ -1,0 +1,61 @@
+apiVersion: fis.fis.dksshddl.dev/v1alpha1
+kind: ExperimentTemplate
+metadata:
+  name: multi-target-experiment
+  namespace: default
+spec:
+  description: "Test multiple targets with different stress types"
+  
+  targets:
+  - name: frontend-pods
+    namespace: default
+    labelSelector:
+      app: frontend
+      tier: web
+    selectionMode: PERCENT
+    percent: 50
+  
+  - name: backend-pods
+    namespace: default
+    labelSelector:
+      app: backend
+      tier: api
+    selectionMode: COUNT
+    count: 2
+  
+  actions:
+  - name: frontend-cpu-stress
+    type: pod-cpu-stress
+    duration: 5m
+    target: frontend-pods
+    parameters:
+      percent: "80"
+  
+  - name: backend-memory-stress
+    type: pod-memory-stress
+    duration: 5m
+    target: backend-pods
+    parameters:
+      percent: "70"
+    startAfter:
+    - frontend-cpu-stress
+  
+  - name: backend-network-latency
+    type: pod-network-latency
+    duration: 3m
+    target: backend-pods
+    parameters:
+      delayMilliseconds: "300"
+    startAfter:
+    - backend-memory-stress
+  
+  stopConditions:
+  - source: none
+  
+  tags:
+  - key: Name
+    value: "Multi-Target Chaos Test"
+  - key: Environment
+    value: "staging"
+  - key: Team
+    value: "platform"

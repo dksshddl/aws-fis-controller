@@ -8,4 +8,14 @@ layout:
 - go.kubebuilder.io/v4
 projectName: aws-fis-controller
 repo: fis.dksshddl.dev/fis-controller
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: fis.dksshddl.dev
+  group: fis
+  kind: ExperimentTemplate
+  path: fis.dksshddl.dev/fis-controller/api/v1alpha1
+  version: v1alpha1
 version: "3"

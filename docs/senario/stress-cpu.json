@@ -1,0 +1,68 @@
+{
+        "targets": {
+                "EksStressCpuTarget": {
+                        "resourceType": "aws:eks:pod",
+                        "selectionMode": "ALL",
+                        "parameters": {
+                                "clusterIdentifier": "",
+                                "namespace": "default",
+                                "selectorType": "labelSelector",
+                                "selectorValue": "app=nginx"
+                        }
+                }
+        },
+        "actions": {
+                "EksStressCpuAction-010-Cpu": {
+                        "actionId": "aws:eks:pod-cpu-stress",
+                        "parameters": {
+                                "duration": "PT5M",
+                                "kubernetesServiceAccount": "default",
+                                "percent": "80"
+                        },
+                        "targets": {
+                                "Pods": "EksStressCpuTarget"
+                        }
+                },
+                "EksStressCpuAction-020-Cpu": {
+                        "actionId": "aws:eks:pod-cpu-stress",
+                        "parameters": {
+                                "duration": "PT5M",
+                                "kubernetesServiceAccount": "default",
+                                "percent": "90"
+                        },
+                        "targets": {
+                                "Pods": "EksStressCpuTarget"
+                        },
+                        "startAfter": [
+                                "EksStressCpuAction-010-Cpu"
+                        ]
+                },
+                "EksStressCpuAction-030-Cpu": {
+                        "actionId": "aws:eks:pod-cpu-stress",
+                        "parameters": {
+                                "duration": "PT5M",
+                                "kubernetesServiceAccount": "default",
+                                "percent": "100"
+                        },
+                        "targets": {
+                                "Pods": "EksStressCpuTarget"
+                        },
+                        "startAfter": [
+                                "EksStressCpuAction-020-Cpu"
+                        ]
+                }
+        },
+        "stopConditions": [
+                {
+                        "source": "none"
+                }
+        ],
+        "roleArn": "",
+        "tags": {
+                "Name": "EKS Stress: CPU"
+        },
+        "description": "Inject increasing CPU load on one or more EKS pods, targeting based on cluster and application label",
+        "logConfiguration": {
+                "logSchemaVersion": 2
+        }
+}
