@@ -1,0 +1,68 @@
+{
+        "targets": {
+                "EksStressDiskTarget": {
+                        "resourceType": "aws:eks:pod",
+                        "selectionMode": "ALL",
+                        "parameters": {
+                                "clusterIdentifier": "",
+                                "namespace": "default",
+                                "selectorType": "labelSelector",
+                                "selectorValue": "app=nginx"
+                        }
+                }
+        },
+        "actions": {
+                "EksStressDiskAction-010-Disk": {
+                        "actionId": "aws:eks:pod-io-stress",
+                        "parameters": {
+                                "duration": "PT5M",
+                                "kubernetesServiceAccount": "default",
+                                "percent": "80"
+                        },
+                        "targets": {
+                                "Pods": "EksStressDiskTarget"
+                        }
+                },
+                "EksStressDiskAction-020-Disk": {
+                        "actionId": "aws:eks:pod-io-stress",
+                        "parameters": {
+                                "duration": "PT5M",
+                                "kubernetesServiceAccount": "default",
+                                "percent": "90"
+                        },
+                        "targets": {
+                                "Pods": "EksStressDiskTarget"
+                        },
+                        "startAfter": [
+                                "EksStressDiskAction-010-Disk"
+                        ]
+                },
+                "EksStressDiskAction-030-Disk": {
+                        "actionId": "aws:eks:pod-io-stress",
+                        "parameters": {
+                                "duration": "PT5M",
+                                "kubernetesServiceAccount": "default",
+                                "percent": "100"
+                        },
+                        "targets": {
+                                "Pods": "EksStressDiskTarget"
+                        },
+                        "startAfter": [
+                                "EksStressDiskAction-020-Disk"
+                        ]
+                }
+        },
+        "stopConditions": [
+                {
+                        "source": "none"
+                }
+        ],
+        "roleArn": "",
+        "tags": {
+                "Name": "EKS Stress: Disk"
+        },
+        "description": "Inject increasing disk utilization on one or more EKS pods, targeting based on cluster and application label",
+        "logConfiguration": {
+                "logSchemaVersion": 2
+        }
+}

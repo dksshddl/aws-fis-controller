@@ -104,6 +104,31 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 
 ##@ Build
 
+# ecr-login-if-needed checks if IMG is an ECR registry and logs in if needed
+# Usage: $(call ecr-login-if-needed)
+define ecr-login-if-needed
+	@if echo "$(IMG)" | grep -q "\.dkr\.ecr\..*\.amazonaws\.com"; then \
+		AWS_REGION=$$(echo "$(IMG)" | sed -n 's/.*\.dkr\.ecr\.\([^.]*\)\.amazonaws\.com.*/\1/p'); \
+		if [ -z "$$AWS_REGION" ]; then \
+			AWS_REGION=us-east-1; \
+			echo "Could not detect region, using default: $$AWS_REGION"; \
+		fi; \
+		ECR_REGISTRY=$$(echo "$(IMG)" | sed 's|/.*||'); \
+		echo "Logging into ECR: $$ECR_REGISTRY (region: $$AWS_REGION)"; \
+		aws ecr get-login-password --region $$AWS_REGION --profile default | \
+			$(CONTAINER_TOOL) login --username AWS --password-stdin $$ECR_REGISTRY; \
+	fi
+endef
+
+.PHONY: ecr-login
+ecr-login: ## Login to AWS ECR (auto-detects region from IMG or uses ap-northeast-2)
+	@if echo "$(IMG)" | grep -q "\.dkr\.ecr\..*\.amazonaws\.com"; then \
+		$(call ecr-login-if-needed); \
+	else \
+		echo "IMG does not appear to be an ECR registry: $(IMG)"; \
+		exit 1; \
+	fi
+
 .PHONY: build
 build: manifests generate fmt vet ## Build manager binary.
 	go build -o bin/manager cmd/main.go
@@ -117,10 +142,11 @@ run: manifests generate fmt vet ## Run a controller from your host.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build -t ${IMG} .
+	$(CONTAINER_TOOL) build --network=host -t ${IMG} .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
+	$(call ecr-login-if-needed)
 	$(CONTAINER_TOOL) push ${IMG}
 
 # PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
@@ -132,6 +158,7 @@ docker-push: ## Push docker image with the manager.
 PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
 .PHONY: docker-buildx
 docker-buildx: ## Build and push docker image for the manager for cross-platform support
+	$(call ecr-login-if-needed)
 	# copy existing Dockerfile and insert --platform=${BUILDPLATFORM} into Dockerfile.cross, and preserve the original Dockerfile
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
 	- $(CONTAINER_TOOL) buildx create --name aws-fis-controller-builder
