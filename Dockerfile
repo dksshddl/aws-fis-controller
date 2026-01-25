@@ -6,7 +6,8 @@ ARG TARGETARCH
 WORKDIR /workspace
 
 # Configure Go proxy and environment
-ENV GOPROXY=https://proxy.golang.org,direct
+# ENV GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=direct
 ENV GOSUMDB=sum.golang.org
 ENV GOPRIVATE=""
 

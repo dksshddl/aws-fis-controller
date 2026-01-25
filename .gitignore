@@ -1,2 +1,6 @@
 study
 hack/makefile.sh
+hack/podman-dns-setup.sh
+
+# Vendor directory (created by 'make vendor')
+vendor/
