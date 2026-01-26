@@ -43,7 +43,7 @@ import (
 
 // add permissions to create RBAC for FIS-POD
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;create;update
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=role,verbs=get;list;create;update;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;create;update;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;create;update;delete
 
 var (
