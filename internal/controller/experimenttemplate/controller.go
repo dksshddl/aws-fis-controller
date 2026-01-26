@@ -37,9 +37,10 @@ const (
 // Reconciler reconciles a ExperimentTemplate object
 type Reconciler struct {
 	client.Client
-	Scheme    *runtime.Scheme
-	FISClient *awsfis.FISClient
-	IAMClient *awsfis.IAMClient
+	Scheme     *runtime.Scheme
+	FISClient  *awsfis.FISClient
+	IAMClient  *awsfis.IAMClient
+	ClusterARN string
 }
 
 // +kubebuilder:rbac:groups=fis.fis.dksshddl.dev,resources=experimenttemplates,verbs=get;list;watch;create;update;patch;delete

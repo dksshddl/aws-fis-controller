@@ -19,6 +19,7 @@ package aws
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -192,10 +193,7 @@ func (c *IAMClient) RoleExists(ctx context.Context, roleName string) (bool, erro
 	if err != nil {
 		// Check if it's a NoSuchEntity error
 		var noSuchEntityErr *iamtypes.NoSuchEntityException
-		if ok := err.(*iamtypes.NoSuchEntityException); ok != nil {
-			noSuchEntityErr = ok
-		}
-		if noSuchEntityErr != nil {
+		if errors.As(err, &noSuchEntityErr) {
 			return false, nil
 		}
 		return false, fmt.Errorf("failed to get IAM role: %w", err)

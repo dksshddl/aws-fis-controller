@@ -95,8 +95,10 @@ func (c *FISClient) convertActions(crdActions []fisv1alpha1.ActionSpec, serviceA
 		// Convert duration from Kubernetes format (5m) to AWS format (PT5M)
 		fisAction.Parameters["duration"] = c.convertDuration(action.Duration)
 
-		// Set kubernetes service account
-		fisAction.Parameters["kubernetesServiceAccount"] = serviceAccount
+		// Set kubernetes service account if provided
+		if serviceAccount != "" {
+			fisAction.Parameters["kubernetesServiceAccount"] = serviceAccount
+		}
 
 		// Copy other parameters
 		for key, value := range action.Parameters {

@@ -39,7 +39,7 @@ import (
 	awsfis "fis.dksshddl.dev/fis-controller/internal/aws"
 	"fis.dksshddl.dev/fis-controller/internal/controller/experiment"
 	"fis.dksshddl.dev/fis-controller/internal/controller/experimenttemplate"
-	"fis.dksshddl.dev/fis-controller/internal/setup"
+	"fis.dksshddl.dev/fis-controller/internal/utils"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -75,10 +75,12 @@ func main() {
 	var secureMetrics bool
 	var enableHTTP2 bool
 	var fisNamespace string
+	var clusterName string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&fisNamespace, "fis-namespace", "default", "The namespace where FIS pods will run and RBAC resources will be created.")
+	flag.StringVar(&clusterName, "cluster-name", "", "The EKS cluster name for FIS experiments.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
@@ -196,7 +198,7 @@ func main() {
 	// Setup RBAC for FIS pods
 	setupLog.Info("setting up RBAC for FIS pods", "namespace", fisNamespace)
 	ctx := ctrl.SetupSignalHandler()
-	if err := setup.SetupFISRBAC(ctx, fisNamespace); err != nil {
+	if err := utils.SetupFISRBAC(ctx, fisNamespace); err != nil {
 		setupLog.Error(err, "unable to setup FIS RBAC")
 		os.Exit(1)
 	}
@@ -216,11 +218,29 @@ func main() {
 	setupLog.Info("creating AWS IAM client")
 	iamClient := awsfis.NewIAMClient(fisClient.GetAWSConfig())
 
+	// Create EKS client using the same AWS config
+	setupLog.Info("creating AWS EKS client")
+	eksClient := awsfis.NewEKSClient(fisClient.GetAWSConfig())
+
+	// Get cluster ARN if cluster name is provided
+	var clusterARN string
+	if clusterName != "" {
+		setupLog.Info("resolving cluster ARN from cluster name", "clusterName", clusterName)
+		arn, err := eksClient.GetClusterARN(ctx, clusterName)
+		if err != nil {
+			setupLog.Error(err, "failed to get cluster ARN", "clusterName", clusterName)
+			os.Exit(1)
+		}
+		clusterARN = arn
+		setupLog.Info("successfully resolved cluster ARN", "clusterARN", clusterARN)
+	}
+
 	if err := (&experimenttemplate.Reconciler{
-		Client:    mgr.GetClient(),
-		Scheme:    mgr.GetScheme(),
-		FISClient: fisClient,
-		IAMClient: iamClient,
+		Client:     mgr.GetClient(),
+		Scheme:     mgr.GetScheme(),
+		FISClient:  fisClient,
+		IAMClient:  iamClient,
+		ClusterARN: clusterARN,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ExperimentTemplate")
 		os.Exit(1)

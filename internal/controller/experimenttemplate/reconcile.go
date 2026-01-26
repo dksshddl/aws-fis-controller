@@ -26,11 +26,12 @@ import (
 
 	fisv1alpha1 "fis.dksshddl.dev/fis-controller/api/v1alpha1"
 	awsfis "fis.dksshddl.dev/fis-controller/internal/aws"
+	"fis.dksshddl.dev/fis-controller/internal/utils"
 )
 
 // getRequiredParameters extracts required parameters from environment or annotations
 // If roleArn is not provided, it will be automatically created
-func (r *Reconciler) getRequiredParameters(ctx context.Context, template *fisv1alpha1.ExperimentTemplate) (roleArn, clusterIdentifier, serviceAccount string, err error) {
+func (r *Reconciler) getRequiredParameters(ctx context.Context, template *fisv1alpha1.ExperimentTemplate) (roleArn, clusterIdentifier string, err error) {
 	// Get FIS Role ARN (optional - will be auto-created if not provided)
 	roleArn = os.Getenv("FIS_ROLE_ARN")
 	if roleArn == "" {
@@ -48,7 +49,7 @@ func (r *Reconciler) getRequiredParameters(ctx context.Context, template *fisv1a
 			// Create or get existing IAM role
 			createdRoleArn, err := awsfis.EnsureIAMRole(ctx, r.IAMClient, template.Namespace, template.Name, "")
 			if err != nil {
-				return "", "", "", fmt.Errorf("failed to ensure IAM role: %w", err)
+				return "", "", fmt.Errorf("failed to ensure IAM role: %w", err)
 			}
 			roleArn = createdRoleArn
 		}
@@ -59,18 +60,20 @@ func (r *Reconciler) getRequiredParameters(ctx context.Context, template *fisv1a
 	if clusterIdentifier == "" {
 		if val, ok := template.Annotations["fis.dksshddl.dev/cluster-identifier"]; ok {
 			clusterIdentifier = val
-		} else {
-			return "", "", "", fmt.Errorf("CLUSTER_IDENTIFIER environment variable or fis.dksshddl.dev/cluster-identifier annotation is required")
 		}
 	}
 
-	// Get Service Account (optional, has default)
-	serviceAccount = "fis-pod-sa"
-	if val, ok := template.Annotations["fis.dksshddl.dev/service-account"]; ok {
-		serviceAccount = val
+	// If still empty, use the cluster ARN from controller initialization
+	if clusterIdentifier == "" && r.ClusterARN != "" {
+		clusterIdentifier = r.ClusterARN
 	}
 
-	return roleArn, clusterIdentifier, serviceAccount, nil
+	// If still empty, return error
+	if clusterIdentifier == "" {
+		return "", "", fmt.Errorf("CLUSTER_IDENTIFIER environment variable, fis.dksshddl.dev/cluster-identifier annotation, or --cluster-name flag is required")
+	}
+
+	return roleArn, clusterIdentifier, nil
 }
 
 // createFISExperimentTemplate handles the creation of AWS FIS ExperimentTemplate
@@ -78,16 +81,29 @@ func (r *Reconciler) createFISExperimentTemplate(ctx context.Context, template *
 	log.Info("Creating AWS FIS ExperimentTemplate")
 
 	// Get required parameters (IAM role will be auto-created if needed)
-	roleArn, clusterIdentifier, serviceAccount, err := r.getRequiredParameters(ctx, template)
+	roleArn, clusterIdentifier, err := r.getRequiredParameters(ctx, template)
 	if err != nil {
 		log.Error(err, "Missing required configuration")
 		return ctrl.Result{}, err
 	}
 
+	// Create Kubernetes RBAC resources (ServiceAccount, Role, RoleBinding)
+	log.Info("Creating Kubernetes RBAC resources for ExperimentTemplate")
+	serviceAccount, err := utils.SetupExperimentTemplateRBAC(ctx, r.Client, template.Namespace, template.Name)
+	if err != nil {
+		log.Error(err, "Failed to create Kubernetes RBAC resources")
+		return ctrl.Result{}, err
+	}
+	log.Info("Successfully created Kubernetes RBAC resources", "serviceAccount", serviceAccount)
+
 	// Create AWS FIS ExperimentTemplate
 	templateID, err := r.FISClient.CreateExperimentTemplate(ctx, template, roleArn, clusterIdentifier, serviceAccount)
 	if err != nil {
 		log.Error(err, "Failed to create AWS FIS ExperimentTemplate")
+		// Clean up RBAC resources on failure
+		if cleanupErr := utils.DeleteExperimentTemplateRBAC(ctx, r.Client, template.Namespace, template.Name); cleanupErr != nil {
+			log.Error(cleanupErr, "Failed to clean up RBAC resources after FIS template creation failure")
+		}
 		// Update status with error
 		template.Status.Phase = "Failed"
 		template.Status.Message = err.Error()
@@ -97,7 +113,7 @@ func (r *Reconciler) createFISExperimentTemplate(ctx context.Context, template *
 		return ctrl.Result{}, err
 	}
 
-	log.Info("Successfully created AWS FIS ExperimentTemplate", "templateID", templateID, "roleArn", roleArn)
+	log.Info("Successfully created AWS FIS ExperimentTemplate", "templateID", templateID, "roleArn", roleArn, "serviceAccount", serviceAccount)
 
 	// Update status
 	template.Status.TemplateID = templateID
@@ -118,9 +134,17 @@ func (r *Reconciler) updateFISExperimentTemplate(ctx context.Context, template *
 	log.Info("Updating AWS FIS ExperimentTemplate", "templateID", template.Status.TemplateID)
 
 	// Get required parameters
-	roleArn, clusterIdentifier, serviceAccount, err := r.getRequiredParameters(ctx, template)
+	roleArn, clusterIdentifier, err := r.getRequiredParameters(ctx, template)
 	if err != nil {
 		log.Error(err, "Missing required configuration")
+		return ctrl.Result{}, err
+	}
+
+	// Ensure Kubernetes RBAC resources exist (idempotent)
+	log.Info("Ensuring Kubernetes RBAC resources for ExperimentTemplate")
+	serviceAccount, err := utils.SetupExperimentTemplateRBAC(ctx, r.Client, template.Namespace, template.Name)
+	if err != nil {
+		log.Error(err, "Failed to ensure Kubernetes RBAC resources")
 		return ctrl.Result{}, err
 	}
 
@@ -151,7 +175,7 @@ func (r *Reconciler) updateFISExperimentTemplate(ctx context.Context, template *
 	return ctrl.Result{}, nil
 }
 
-// handleDeletion handles the deletion of AWS FIS ExperimentTemplate and IAM Role
+// handleDeletion handles the deletion of AWS FIS ExperimentTemplate, IAM Role, and Kubernetes RBAC
 func (r *Reconciler) handleDeletion(ctx context.Context, template *fisv1alpha1.ExperimentTemplate, log logr.Logger) (ctrl.Result, error) {
 	log.Info("Deleting AWS FIS ExperimentTemplate", "templateID", template.Status.TemplateID)
 
@@ -174,6 +198,16 @@ func (r *Reconciler) handleDeletion(ctx context.Context, template *fisv1alpha1.E
 		} else {
 			log.Info("Successfully deleted IAM role", "roleArn", template.Status.RoleArn)
 		}
+	}
+
+	// Delete Kubernetes RBAC resources
+	log.Info("Deleting Kubernetes RBAC resources for ExperimentTemplate")
+	if err := utils.DeleteExperimentTemplateRBAC(ctx, r.Client, template.Namespace, template.Name); err != nil {
+		log.Error(err, "Failed to delete Kubernetes RBAC resources")
+		// Don't fail the deletion if RBAC cleanup fails
+		// Just log the error and continue
+	} else {
+		log.Info("Successfully deleted Kubernetes RBAC resources")
 	}
 
 	return ctrl.Result{}, nil

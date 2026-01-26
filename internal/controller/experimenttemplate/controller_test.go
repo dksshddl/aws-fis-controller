@@ -38,8 +38,9 @@ func TestReconciler(t *testing.T) {
 
 	// Create reconciler
 	reconciler := &Reconciler{
-		Client: fakeClient,
-		Scheme: scheme,
+		Client:     fakeClient,
+		Scheme:     scheme,
+		ClusterARN: "arn:aws:eks:ap-northeast-2:123456789012:cluster/test-cluster",
 	}
 
 	if reconciler == nil {
@@ -87,18 +88,16 @@ func TestGetRequiredParametersWithEnvVars(t *testing.T) {
 		Build()
 
 	reconciler := &Reconciler{
-		Client: fakeClient,
-		Scheme: scheme,
+		Client:     fakeClient,
+		Scheme:     scheme,
+		ClusterARN: "arn:aws:eks:ap-northeast-2:123456789012:cluster/test-cluster",
 	}
 
 	// Test with environment variables (should take precedence)
 	template := &fisv1alpha1.ExperimentTemplate{}
-	template.Annotations = map[string]string{
-		"fis.dksshddl.dev/service-account": "test-sa",
-	}
 
 	ctx := context.Background()
-	roleArn, clusterIdentifier, serviceAccount, err := reconciler.getRequiredParameters(ctx, template)
+	roleArn, clusterIdentifier, err := reconciler.getRequiredParameters(ctx, template)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -111,10 +110,6 @@ func TestGetRequiredParametersWithEnvVars(t *testing.T) {
 
 	if clusterIdentifier != "arn:aws:eks:ap-northeast-2:123456789012:cluster/env-cluster" {
 		t.Errorf("Expected clusterIdentifier from env 'arn:aws:eks:ap-northeast-2:123456789012:cluster/env-cluster', got: %s", clusterIdentifier)
-	}
-
-	if serviceAccount != "test-sa" {
-		t.Errorf("Expected serviceAccount 'test-sa', got: %s", serviceAccount)
 	}
 }
 
@@ -144,20 +139,20 @@ func TestGetRequiredParametersWithAnnotations(t *testing.T) {
 		Build()
 
 	reconciler := &Reconciler{
-		Client: fakeClient,
-		Scheme: scheme,
+		Client:     fakeClient,
+		Scheme:     scheme,
+		ClusterARN: "arn:aws:eks:ap-northeast-2:123456789012:cluster/test-cluster",
 	}
 
 	// Test with role in status and cluster in annotation
 	template := &fisv1alpha1.ExperimentTemplate{}
 	template.Annotations = map[string]string{
 		"fis.dksshddl.dev/cluster-identifier": "arn:aws:eks:ap-northeast-2:123456789012:cluster/test-cluster",
-		"fis.dksshddl.dev/service-account":    "test-sa",
 	}
 	template.Status.RoleArn = "arn:aws:iam::123456789012:role/status-role"
 
 	ctx := context.Background()
-	roleArn, clusterIdentifier, serviceAccount, err := reconciler.getRequiredParameters(ctx, template)
+	roleArn, clusterIdentifier, err := reconciler.getRequiredParameters(ctx, template)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -170,10 +165,6 @@ func TestGetRequiredParametersWithAnnotations(t *testing.T) {
 
 	if clusterIdentifier != "arn:aws:eks:ap-northeast-2:123456789012:cluster/test-cluster" {
 		t.Errorf("Expected clusterIdentifier from annotation 'arn:aws:eks:ap-northeast-2:123456789012:cluster/test-cluster', got: %s", clusterIdentifier)
-	}
-
-	if serviceAccount != "test-sa" {
-		t.Errorf("Expected serviceAccount 'test-sa', got: %s", serviceAccount)
 	}
 }
 
@@ -203,11 +194,12 @@ func TestGetRequiredParametersWithDefaults(t *testing.T) {
 		Build()
 
 	reconciler := &Reconciler{
-		Client: fakeClient,
-		Scheme: scheme,
+		Client:     fakeClient,
+		Scheme:     scheme,
+		ClusterARN: "arn:aws:eks:ap-northeast-2:123456789012:cluster/test-cluster",
 	}
 
-	// Test with minimal config (service account should default)
+	// Test with minimal config
 	template := &fisv1alpha1.ExperimentTemplate{}
 	template.Annotations = map[string]string{
 		"fis.dksshddl.dev/cluster-identifier": "arn:aws:eks:ap-northeast-2:123456789012:cluster/test-cluster",
@@ -215,14 +207,18 @@ func TestGetRequiredParametersWithDefaults(t *testing.T) {
 	template.Status.RoleArn = "arn:aws:iam::123456789012:role/test-role"
 
 	ctx := context.Background()
-	_, _, serviceAccount, err := reconciler.getRequiredParameters(ctx, template)
+	roleArn, clusterIdentifier, err := reconciler.getRequiredParameters(ctx, template)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
 		return
 	}
 
-	if serviceAccount != "fis-pod-sa" {
-		t.Errorf("Expected default serviceAccount 'fis-pod-sa', got: %s", serviceAccount)
+	if roleArn != "arn:aws:iam::123456789012:role/test-role" {
+		t.Errorf("Expected roleArn 'arn:aws:iam::123456789012:role/test-role', got: %s", roleArn)
+	}
+
+	if clusterIdentifier != "arn:aws:eks:ap-northeast-2:123456789012:cluster/test-cluster" {
+		t.Errorf("Expected clusterIdentifier 'arn:aws:eks:ap-northeast-2:123456789012:cluster/test-cluster', got: %s", clusterIdentifier)
 	}
 }
