@@ -217,3 +217,66 @@ func GenerateRoleName(namespace, templateName string) string {
 
 	return roleName
 }
+
+// EnsureIAMRole ensures an IAM role exists for the experiment template
+// If roleArn is provided, it validates the role exists
+// If roleArn is empty, it creates a new role
+func EnsureIAMRole(ctx context.Context, iamClient *IAMClient, namespace, templateName, roleArn string) (string, error) {
+	// If roleArn is provided, just return it (assume it's valid)
+	if roleArn != "" {
+		return roleArn, nil
+	}
+
+	// Generate role name
+	roleName := GenerateRoleName(namespace, templateName)
+
+	// Check if role already exists
+	exists, err := iamClient.RoleExists(ctx, roleName)
+	if err != nil {
+		return "", fmt.Errorf("failed to check if role exists: %w", err)
+	}
+
+	if exists {
+		// Role already exists, get its ARN
+		getRoleInput := &iam.GetRoleInput{
+			RoleName: aws.String(roleName),
+		}
+		getRoleOutput, err := iamClient.client.GetRole(ctx, getRoleInput)
+		if err != nil {
+			return "", fmt.Errorf("failed to get existing role: %w", err)
+		}
+		return aws.ToString(getRoleOutput.Role.Arn), nil
+	}
+
+	// Create new role
+	createdRoleArn, err := iamClient.CreateFISRole(ctx, roleName, namespace, templateName)
+	if err != nil {
+		return "", fmt.Errorf("failed to create IAM role: %w", err)
+	}
+
+	return createdRoleArn, nil
+}
+
+// DeleteIAMRole deletes the IAM role for an experiment template
+func DeleteIAMRole(ctx context.Context, iamClient *IAMClient, namespace, templateName string) error {
+	roleName := GenerateRoleName(namespace, templateName)
+
+	// Check if role exists
+	exists, err := iamClient.RoleExists(ctx, roleName)
+	if err != nil {
+		return fmt.Errorf("failed to check if role exists: %w", err)
+	}
+
+	if !exists {
+		// Role doesn't exist, nothing to delete
+		return nil
+	}
+
+	// Delete the role
+	err = iamClient.DeleteFISRole(ctx, roleName)
+	if err != nil {
+		return fmt.Errorf("failed to delete IAM role: %w", err)
+	}
+
+	return nil
+}

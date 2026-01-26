@@ -17,6 +17,8 @@ limitations under the License.
 package experimenttemplate
 
 import (
+	"context"
+	"os"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -54,7 +56,29 @@ func TestReconciler(t *testing.T) {
 	}
 }
 
-func TestGetRequiredParameters(t *testing.T) {
+func TestGetRequiredParametersWithEnvVars(t *testing.T) {
+	// Save original env vars
+	origRoleArn := os.Getenv("FIS_ROLE_ARN")
+	origCluster := os.Getenv("CLUSTER_IDENTIFIER")
+
+	// Set test env vars
+	os.Setenv("FIS_ROLE_ARN", "arn:aws:iam::123456789012:role/env-role")
+	os.Setenv("CLUSTER_IDENTIFIER", "arn:aws:eks:ap-northeast-2:123456789012:cluster/env-cluster")
+
+	// Restore original env vars after test
+	defer func() {
+		if origRoleArn != "" {
+			os.Setenv("FIS_ROLE_ARN", origRoleArn)
+		} else {
+			os.Unsetenv("FIS_ROLE_ARN")
+		}
+		if origCluster != "" {
+			os.Setenv("CLUSTER_IDENTIFIER", origCluster)
+		} else {
+			os.Unsetenv("CLUSTER_IDENTIFIER")
+		}
+	}()
+
 	scheme := runtime.NewScheme()
 	_ = fisv1alpha1.AddToScheme(scheme)
 
@@ -67,33 +91,110 @@ func TestGetRequiredParameters(t *testing.T) {
 		Scheme: scheme,
 	}
 
-	// Test with annotations
+	// Test with environment variables (should take precedence)
 	template := &fisv1alpha1.ExperimentTemplate{}
 	template.Annotations = map[string]string{
-		"fis.dksshddl.dev/role-arn":           "arn:aws:iam::123456789012:role/test-role",
-		"fis.dksshddl.dev/cluster-identifier": "arn:aws:eks:ap-northeast-2:123456789012:cluster/test-cluster",
-		"fis.dksshddl.dev/service-account":    "test-sa",
+		"fis.dksshddl.dev/service-account": "test-sa",
 	}
 
-	roleArn, clusterIdentifier, serviceAccount, err := reconciler.getRequiredParameters(template)
+	ctx := context.Background()
+	roleArn, clusterIdentifier, serviceAccount, err := reconciler.getRequiredParameters(ctx, template)
+
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
+		return
 	}
 
-	if roleArn != "arn:aws:iam::123456789012:role/test-role" {
-		t.Errorf("Expected roleArn to be set, got: %s", roleArn)
+	if roleArn != "arn:aws:iam::123456789012:role/env-role" {
+		t.Errorf("Expected roleArn from env 'arn:aws:iam::123456789012:role/env-role', got: %s", roleArn)
 	}
 
-	if clusterIdentifier != "arn:aws:eks:ap-northeast-2:123456789012:cluster/test-cluster" {
-		t.Errorf("Expected clusterIdentifier to be set, got: %s", clusterIdentifier)
+	if clusterIdentifier != "arn:aws:eks:ap-northeast-2:123456789012:cluster/env-cluster" {
+		t.Errorf("Expected clusterIdentifier from env 'arn:aws:eks:ap-northeast-2:123456789012:cluster/env-cluster', got: %s", clusterIdentifier)
 	}
 
 	if serviceAccount != "test-sa" {
-		t.Errorf("Expected serviceAccount to be 'test-sa', got: %s", serviceAccount)
+		t.Errorf("Expected serviceAccount 'test-sa', got: %s", serviceAccount)
+	}
+}
+
+func TestGetRequiredParametersWithAnnotations(t *testing.T) {
+	// Clear env vars for this test
+	origRoleArn := os.Getenv("FIS_ROLE_ARN")
+	origCluster := os.Getenv("CLUSTER_IDENTIFIER")
+
+	os.Unsetenv("FIS_ROLE_ARN")
+	os.Unsetenv("CLUSTER_IDENTIFIER")
+
+	// Restore original env vars after test
+	defer func() {
+		if origRoleArn != "" {
+			os.Setenv("FIS_ROLE_ARN", origRoleArn)
+		}
+		if origCluster != "" {
+			os.Setenv("CLUSTER_IDENTIFIER", origCluster)
+		}
+	}()
+
+	scheme := runtime.NewScheme()
+	_ = fisv1alpha1.AddToScheme(scheme)
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		Build()
+
+	reconciler := &Reconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+	}
+
+	// Test with role in status and cluster in annotation
+	template := &fisv1alpha1.ExperimentTemplate{}
+	template.Annotations = map[string]string{
+		"fis.dksshddl.dev/cluster-identifier": "arn:aws:eks:ap-northeast-2:123456789012:cluster/test-cluster",
+		"fis.dksshddl.dev/service-account":    "test-sa",
+	}
+	template.Status.RoleArn = "arn:aws:iam::123456789012:role/status-role"
+
+	ctx := context.Background()
+	roleArn, clusterIdentifier, serviceAccount, err := reconciler.getRequiredParameters(ctx, template)
+
+	if err != nil {
+		t.Errorf("Expected no error, got: %v", err)
+		return
+	}
+
+	if roleArn != "arn:aws:iam::123456789012:role/status-role" {
+		t.Errorf("Expected roleArn from status 'arn:aws:iam::123456789012:role/status-role', got: %s", roleArn)
+	}
+
+	if clusterIdentifier != "arn:aws:eks:ap-northeast-2:123456789012:cluster/test-cluster" {
+		t.Errorf("Expected clusterIdentifier from annotation 'arn:aws:eks:ap-northeast-2:123456789012:cluster/test-cluster', got: %s", clusterIdentifier)
+	}
+
+	if serviceAccount != "test-sa" {
+		t.Errorf("Expected serviceAccount 'test-sa', got: %s", serviceAccount)
 	}
 }
 
 func TestGetRequiredParametersWithDefaults(t *testing.T) {
+	// Clear env vars for this test
+	origRoleArn := os.Getenv("FIS_ROLE_ARN")
+	origCluster := os.Getenv("CLUSTER_IDENTIFIER")
+
+	os.Unsetenv("FIS_ROLE_ARN")
+	os.Unsetenv("CLUSTER_IDENTIFIER")
+
+	// Restore original env vars after test
+	defer func() {
+		if origRoleArn != "" {
+			os.Setenv("FIS_ROLE_ARN", origRoleArn)
+		}
+		if origCluster != "" {
+			os.Setenv("CLUSTER_IDENTIFIER", origCluster)
+		}
+	}()
+
 	scheme := runtime.NewScheme()
 	_ = fisv1alpha1.AddToScheme(scheme)
 
@@ -106,16 +207,19 @@ func TestGetRequiredParametersWithDefaults(t *testing.T) {
 		Scheme: scheme,
 	}
 
-	// Test with partial annotations (service account should default)
+	// Test with minimal config (service account should default)
 	template := &fisv1alpha1.ExperimentTemplate{}
 	template.Annotations = map[string]string{
-		"fis.dksshddl.dev/role-arn":           "arn:aws:iam::123456789012:role/test-role",
 		"fis.dksshddl.dev/cluster-identifier": "arn:aws:eks:ap-northeast-2:123456789012:cluster/test-cluster",
 	}
+	template.Status.RoleArn = "arn:aws:iam::123456789012:role/test-role"
 
-	_, _, serviceAccount, err := reconciler.getRequiredParameters(template)
+	ctx := context.Background()
+	_, _, serviceAccount, err := reconciler.getRequiredParameters(ctx, template)
+
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
+		return
 	}
 
 	if serviceAccount != "fis-pod-sa" {

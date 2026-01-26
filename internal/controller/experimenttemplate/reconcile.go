@@ -25,6 +25,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	fisv1alpha1 "fis.dksshddl.dev/fis-controller/api/v1alpha1"
+	awsfis "fis.dksshddl.dev/fis-controller/internal/aws"
 )
 
 // getRequiredParameters extracts required parameters from environment or annotations
@@ -45,7 +46,7 @@ func (r *Reconciler) getRequiredParameters(ctx context.Context, template *fisv1a
 			roleArn = template.Status.RoleArn
 		} else {
 			// Create or get existing IAM role
-			createdRoleArn, err := r.FISClient.EnsureIAMRole(ctx, template.Namespace, template.Name, "")
+			createdRoleArn, err := awsfis.EnsureIAMRole(ctx, r.IAMClient, template.Namespace, template.Name, "")
 			if err != nil {
 				return "", "", "", fmt.Errorf("failed to ensure IAM role: %w", err)
 			}
@@ -166,7 +167,7 @@ func (r *Reconciler) handleDeletion(ctx context.Context, template *fisv1alpha1.E
 	// Delete IAM Role if it was auto-created (check if RoleArn is in status)
 	if template.Status.RoleArn != "" {
 		// Only delete if it's an auto-created role (follows our naming pattern)
-		if err := r.FISClient.DeleteIAMRole(ctx, template.Namespace, template.Name); err != nil {
+		if err := awsfis.DeleteIAMRole(ctx, r.IAMClient, template.Namespace, template.Name); err != nil {
 			log.Error(err, "Failed to delete IAM role")
 			// Don't fail the deletion if IAM role deletion fails
 			// Just log the error and continue

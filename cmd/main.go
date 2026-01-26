@@ -212,10 +212,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Create IAM client using the same AWS config
+	setupLog.Info("creating AWS IAM client")
+	iamClient := awsfis.NewIAMClient(fisClient.GetAWSConfig())
+
 	if err := (&experimenttemplate.Reconciler{
 		Client:    mgr.GetClient(),
 		Scheme:    mgr.GetScheme(),
 		FISClient: fisClient,
+		IAMClient: iamClient,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ExperimentTemplate")
 		os.Exit(1)
