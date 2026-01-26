@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	fisv1alpha1 "fis.dksshddl.dev/fis-controller/api/v1alpha1"
+	awsfis "fis.dksshddl.dev/fis-controller/internal/aws"
 	"fis.dksshddl.dev/fis-controller/internal/controller/experiment"
 	"fis.dksshddl.dev/fis-controller/internal/controller/experimenttemplate"
 	"fis.dksshddl.dev/fis-controller/internal/setup"
@@ -200,16 +201,29 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Create FIS client
+	setupLog.Info("creating AWS FIS client")
+	fisClient, err := awsfis.NewFISClient(ctx, awsfis.FISConfig{
+		Region:     "", // Will auto-detect from environment
+		MaxRetries: 3,
+	})
+	if err != nil {
+		setupLog.Error(err, "unable to create FIS client")
+		os.Exit(1)
+	}
+
 	if err := (&experimenttemplate.Reconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:    mgr.GetClient(),
+		Scheme:    mgr.GetScheme(),
+		FISClient: fisClient,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ExperimentTemplate")
 		os.Exit(1)
 	}
 	if err := (&experiment.Reconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:    mgr.GetClient(),
+		Scheme:    mgr.GetScheme(),
+		FISClient: fisClient,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Experiment")
 		os.Exit(1)

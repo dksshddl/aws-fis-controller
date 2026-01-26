@@ -1,0 +1,24 @@
+apiVersion: fis.fis.dksshddl.dev/v1alpha1
+kind: Experiment
+metadata:
+  labels:
+    app.kubernetes.io/name: aws-fis-controller
+  name: scheduled-disk-stress
+  namespace: default
+spec:
+  # Reference ExperimentTemplate by name
+  experimentTemplate:
+    name: "disk-stress-experiment"
+  
+  # Run every day at 2am
+  schedule: "0 2 * * *"
+  
+  # Keep last 3 successful and 1 failed experiment history
+  successfulExperimentsHistoryLimit: 3
+  failedExperimentsHistoryLimit: 1
+  
+  tags:
+    - key: "Environment"
+      value: "production"
+    - key: "Schedule"
+      value: "daily"

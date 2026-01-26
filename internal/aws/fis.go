@@ -268,3 +268,76 @@ func (c *FISClient) DeleteIAMRole(ctx context.Context, namespace, templateName s
 
 	return nil
 }
+
+// StartExperiment starts an AWS FIS experiment from a template
+func (c *FISClient) StartExperiment(ctx context.Context, experiment *fisv1alpha1.Experiment) (string, error) {
+	// Use the resolved template ID from status
+	templateID := experiment.Status.TemplateID
+	if templateID == "" {
+		return "", fmt.Errorf("template ID not resolved in status")
+	}
+
+	input := &fis.StartExperimentInput{
+		ExperimentTemplateId: aws.String(templateID),
+	}
+
+	// Set client token if provided, otherwise generate one
+	if experiment.Spec.ClientToken != "" {
+		input.ClientToken = aws.String(experiment.Spec.ClientToken)
+	} else {
+		input.ClientToken = aws.String(uuid.New().String())
+	}
+
+	// Convert tags
+	if len(experiment.Spec.Tags) > 0 {
+		tags := c.convertTags(experiment.Spec.Tags)
+		// Add management tags
+		tags["ManagedBy"] = "aws-fis-controller"
+		tags["kubernetes.io/name"] = experiment.Name
+		tags["kubernetes.io/namespace"] = experiment.Namespace
+		input.Tags = tags
+	} else {
+		// Add management tags even if no user tags
+		input.Tags = map[string]string{
+			"ManagedBy":               "aws-fis-controller",
+			"kubernetes.io/name":      experiment.Name,
+			"kubernetes.io/namespace": experiment.Namespace,
+		}
+	}
+
+	// Start the experiment
+	output, err := c.client.StartExperiment(ctx, input)
+	if err != nil {
+		return "", fmt.Errorf("failed to start experiment: %w", err)
+	}
+
+	return aws.ToString(output.Experiment.Id), nil
+}
+
+// GetExperiment gets the current state of an AWS FIS experiment
+func (c *FISClient) GetExperiment(ctx context.Context, experimentID string) (*types.Experiment, error) {
+	input := &fis.GetExperimentInput{
+		Id: aws.String(experimentID),
+	}
+
+	output, err := c.client.GetExperiment(ctx, input)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get experiment: %w", err)
+	}
+
+	return output.Experiment, nil
+}
+
+// StopExperiment stops a running AWS FIS experiment
+func (c *FISClient) StopExperiment(ctx context.Context, experimentID string) error {
+	input := &fis.StopExperimentInput{
+		Id: aws.String(experimentID),
+	}
+
+	_, err := c.client.StopExperiment(ctx, input)
+	if err != nil {
+		return fmt.Errorf("failed to stop experiment: %w", err)
+	}
+
+	return nil
+}

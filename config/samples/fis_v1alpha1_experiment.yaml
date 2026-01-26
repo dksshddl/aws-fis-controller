@@ -6,4 +6,37 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: experiment-sample
 spec:
-  # TODO(user): Add fields here
+  # ExperimentTemplate reference - use either id or name
+  experimentTemplate:
+    # Option 1: Use AWS FIS template ID directly
+    # id: "EXT1234567890abcdef"
+    
+    # Option 2: Reference ExperimentTemplate CRD by name (in same namespace)
+    name: "disk-stress-experiment"
+  
+  # Optional: Schedule for recurring experiments (cron expression)
+  # If not specified, experiment runs once immediately (Job mode)
+  # Examples:
+  #   "0 2 * * *"      - Daily at 2am
+  #   "*/30 * * * *"   - Every 30 minutes
+  #   "0 */6 * * *"    - Every 6 hours
+  #   "0 9 * * 1-5"    - Weekdays at 9am
+  # schedule: "0 2 * * *"
+  
+  # Optional: Suspend scheduled executions
+  # suspend: false
+  
+  # Optional: History limits for scheduled experiments
+  # successfulExperimentsHistoryLimit: 3
+  # failedExperimentsHistoryLimit: 1
+  
+  # Optional: Tags to apply to the experiment
+  tags:
+    - key: "Environment"
+      value: "test"
+    - key: "Purpose"
+      value: "chaos-testing"
+  
+  # Optional: Client token for idempotency
+  # If not provided, one will be generated automatically
+  # clientToken: "my-unique-token-123"

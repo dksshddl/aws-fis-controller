@@ -25,33 +25,103 @@ import (
 
 // ExperimentSpec defines the desired state of Experiment
 type ExperimentSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
+	// ExperimentTemplate specifies which template to use
+	// Either ID or Name must be specified
+	// +required
+	ExperimentTemplate ExperimentTemplateRef `json:"experimentTemplate"`
 
-	// foo is an example field of Experiment. Edit experiment_types.go to remove/update
+	// Schedule defines when to run the experiment (cron expression)
+	// If not specified, the experiment runs once immediately (Job mode)
+	// Examples: "0 2 * * *" (daily at 2am), "*/30 * * * *" (every 30 minutes)
 	// +optional
-	Foo *string `json:"foo,omitempty"`
+	Schedule string `json:"schedule,omitempty"`
+
+	// Suspend tells the controller to suspend subsequent executions
+	// This does not apply to already started experiments
+	// +optional
+	Suspend *bool `json:"suspend,omitempty"`
+
+	// SuccessfulExperimentsHistoryLimit is the number of successful finished experiments to retain
+	// Default is 3
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:default=3
+	// +optional
+	SuccessfulExperimentsHistoryLimit *int32 `json:"successfulExperimentsHistoryLimit,omitempty"`
+
+	// FailedExperimentsHistoryLimit is the number of failed finished experiments to retain
+	// Default is 1
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:default=1
+	// +optional
+	FailedExperimentsHistoryLimit *int32 `json:"failedExperimentsHistoryLimit,omitempty"`
+
+	// Tags to apply to the experiment
+	// +optional
+	Tags []Tag `json:"tags,omitempty"`
+
+	// ClientToken is an optional unique identifier for the experiment
+	// If not provided, one will be generated automatically
+	// +optional
+	ClientToken string `json:"clientToken,omitempty"`
+}
+
+// ExperimentTemplateRef references an experiment template by ID or Name
+type ExperimentTemplateRef struct {
+	// ID is the AWS FIS experiment template ID (e.g., "EXT1234567890abcdef")
+	// Either ID or Name must be specified
+	// +optional
+	ID string `json:"id,omitempty"`
+
+	// Name is the name of the ExperimentTemplate CRD in the same namespace
+	// Either ID or Name must be specified
+	// +optional
+	Name string `json:"name,omitempty"`
 }
 
 // ExperimentStatus defines the observed state of Experiment.
 type ExperimentStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// ExperimentID is the AWS FIS experiment ID
+	// +optional
+	ExperimentID string `json:"experimentId,omitempty"`
 
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
+	// TemplateID is the resolved AWS FIS template ID
+	// +optional
+	TemplateID string `json:"templateId,omitempty"`
 
-	// conditions represent the current state of the Experiment resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
+	// State represents the current state of the experiment
+	// Possible values: initiating, pending, running, completed, stopping, stopped, failed
+	// +optional
+	State string `json:"state,omitempty"`
+
+	// Reason provides additional information about the current state
+	// +optional
+	Reason string `json:"reason,omitempty"`
+
+	// StartTime is when the experiment started
+	// +optional
+	StartTime *metav1.Time `json:"startTime,omitempty"`
+
+	// EndTime is when the experiment ended
+	// +optional
+	EndTime *metav1.Time `json:"endTime,omitempty"`
+
+	// LastScheduleTime is the last time the experiment was scheduled (for scheduled experiments)
+	// +optional
+	LastScheduleTime *metav1.Time `json:"lastScheduleTime,omitempty"`
+
+	// NextScheduleTime is the next time the experiment will be scheduled (for scheduled experiments)
+	// +optional
+	NextScheduleTime *metav1.Time `json:"nextScheduleTime,omitempty"`
+
+	// Active is the number of currently running experiments
+	// +optional
+	Active int32 `json:"active,omitempty"`
+
+	// TargetAccountConfigurationsCount is the number of target account configurations
+	// +optional
+	TargetAccountConfigurationsCount int64 `json:"targetAccountConfigurationsCount,omitempty"`
+
+	// Conditions represent the current state of the Experiment resource.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
@@ -60,6 +130,13 @@ type ExperimentStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:shortName=fisexp
+// +kubebuilder:printcolumn:name="State",type=string,JSONPath=`.status.state`
+// +kubebuilder:printcolumn:name="Experiment ID",type=string,JSONPath=`.status.experimentId`
+// +kubebuilder:printcolumn:name="Template",type=string,JSONPath=`.spec.experimentTemplate.name`
+// +kubebuilder:printcolumn:name="Schedule",type=string,JSONPath=`.spec.schedule`
+// +kubebuilder:printcolumn:name="Last Schedule",type=date,JSONPath=`.status.lastScheduleTime`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // Experiment is the Schema for the experiments API
 type Experiment struct {
@@ -67,7 +144,7 @@ type Experiment struct {
 
 	// metadata is a standard object metadata
 	// +optional
-	metav1.ObjectMeta `json:"metadata,omitempty,omitzero"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// spec defines the desired state of Experiment
 	// +required
@@ -75,7 +152,7 @@ type Experiment struct {
 
 	// status defines the observed state of Experiment
 	// +optional
-	Status ExperimentStatus `json:"status,omitempty,omitzero"`
+	Status ExperimentStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true

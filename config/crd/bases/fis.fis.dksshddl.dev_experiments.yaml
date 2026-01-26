@@ -11,10 +11,31 @@ spec:
     kind: Experiment
     listKind: ExperimentList
     plural: experiments
+    shortNames:
+    - fisexp
     singular: experiment
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.state
+      name: State
+      type: string
+    - jsonPath: .status.experimentId
+      name: Experiment ID
+      type: string
+    - jsonPath: .spec.experimentTemplate.name
+      name: Template
+      type: string
+    - jsonPath: .spec.schedule
+      name: Schedule
+      type: string
+    - jsonPath: .status.lastScheduleTime
+      name: Last Schedule
+      type: date
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: Experiment is the Schema for the experiments API
@@ -39,25 +60,86 @@ spec:
           spec:
             description: spec defines the desired state of Experiment
             properties:
-              foo:
-                description: foo is an example field of Experiment. Edit experiment_types.go
-                  to remove/update
+              clientToken:
+                description: |-
+                  ClientToken is an optional unique identifier for the experiment
+                  If not provided, one will be generated automatically
                 type: string
+              experimentTemplate:
+                description: |-
+                  ExperimentTemplate specifies which template to use
+                  Either ID or Name must be specified
+                properties:
+                  id:
+                    description: |-
+                      ID is the AWS FIS experiment template ID (e.g., "EXT1234567890abcdef")
+                      Either ID or Name must be specified
+                    type: string
+                  name:
+                    description: |-
+                      Name is the name of the ExperimentTemplate CRD in the same namespace
+                      Either ID or Name must be specified
+                    type: string
+                type: object
+              failedExperimentsHistoryLimit:
+                default: 1
+                description: |-
+                  FailedExperimentsHistoryLimit is the number of failed finished experiments to retain
+                  Default is 1
+                format: int32
+                minimum: 0
+                type: integer
+              schedule:
+                description: |-
+                  Schedule defines when to run the experiment (cron expression)
+                  If not specified, the experiment runs once immediately (Job mode)
+                  Examples: "0 2 * * *" (daily at 2am), "*/30 * * * *" (every 30 minutes)
+                type: string
+              successfulExperimentsHistoryLimit:
+                default: 3
+                description: |-
+                  SuccessfulExperimentsHistoryLimit is the number of successful finished experiments to retain
+                  Default is 3
+                format: int32
+                minimum: 0
+                type: integer
+              suspend:
+                description: |-
+                  Suspend tells the controller to suspend subsequent executions
+                  This does not apply to already started experiments
+                type: boolean
+              tags:
+                description: Tags to apply to the experiment
+                items:
+                  description: Tag represents a key-value pair for tagging resources
+                  properties:
+                    key:
+                      description: Key is the tag key
+                      maxLength: 128
+                      minLength: 1
+                      type: string
+                    value:
+                      description: Value is the tag value
+                      maxLength: 256
+                      type: string
+                  required:
+                  - key
+                  - value
+                  type: object
+                type: array
+            required:
+            - experimentTemplate
             type: object
           status:
             description: status defines the observed state of Experiment
             properties:
+              active:
+                description: Active is the number of currently running experiments
+                format: int32
+                type: integer
               conditions:
-                description: |-
-                  conditions represent the current state of the Experiment resource.
-                  Each condition has a unique type and reflects the status of a specific aspect of the resource.
-
-                  Standard condition types include:
-                  - "Available": the resource is fully functional
-                  - "Progressing": the resource is being created or updated
-                  - "Degraded": the resource failed to reach or maintain its desired state
-
-                  The status of each condition is one of True, False, or Unknown.
+                description: Conditions represent the current state of the Experiment
+                  resource.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -116,6 +198,44 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              endTime:
+                description: EndTime is when the experiment ended
+                format: date-time
+                type: string
+              experimentId:
+                description: ExperimentID is the AWS FIS experiment ID
+                type: string
+              lastScheduleTime:
+                description: LastScheduleTime is the last time the experiment was
+                  scheduled (for scheduled experiments)
+                format: date-time
+                type: string
+              nextScheduleTime:
+                description: NextScheduleTime is the next time the experiment will
+                  be scheduled (for scheduled experiments)
+                format: date-time
+                type: string
+              reason:
+                description: Reason provides additional information about the current
+                  state
+                type: string
+              startTime:
+                description: StartTime is when the experiment started
+                format: date-time
+                type: string
+              state:
+                description: |-
+                  State represents the current state of the experiment
+                  Possible values: initiating, pending, running, completed, stopping, stopped, failed
+                type: string
+              targetAccountConfigurationsCount:
+                description: TargetAccountConfigurationsCount is the number of target
+                  account configurations
+                format: int64
+                type: integer
+              templateId:
+                description: TemplateID is the resolved AWS FIS template ID
+                type: string
             type: object
         required:
         - spec

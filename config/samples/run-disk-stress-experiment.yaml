@@ -1,0 +1,21 @@
+apiVersion: fis.fis.dksshddl.dev/v1alpha1
+kind: Experiment
+metadata:
+  labels:
+    app.kubernetes.io/name: aws-fis-controller
+    app.kubernetes.io/managed-by: kustomize
+  name: run-disk-stress
+  namespace: default
+spec:
+  # Use the template ID from the disk-stress-experiment ExperimentTemplate
+  # You can get this from: kubectl get experimenttemplate disk-stress-experiment -o jsonpath='{.status.templateId}'
+  experimentTemplateId: "REPLACE_WITH_TEMPLATE_ID"
+  
+  # Tags for this experiment run
+  tags:
+    - key: "Environment"
+      value: "test"
+    - key: "RunBy"
+      value: "kubernetes-controller"
+    - key: "Purpose"
+      value: "disk-io-stress-test"
