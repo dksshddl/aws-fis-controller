@@ -36,7 +36,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	fisv1alpha1 "fis.dksshddl.dev/fis-controller/api/v1alpha1"
-	"fis.dksshddl.dev/fis-controller/internal/controller"
+	"fis.dksshddl.dev/fis-controller/internal/controller/experiment"
+	"fis.dksshddl.dev/fis-controller/internal/controller/experimenttemplate"
 	"fis.dksshddl.dev/fis-controller/internal/setup"
 	// +kubebuilder:scaffold:imports
 )
@@ -45,6 +46,11 @@ import (
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;create;update
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;create;update;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;create;update;delete
+// add permissions that FIS pods need (controller must have these to grant them to FIS pods)
+// ref: https://kubernetes.io/docs/reference/access-authn-authz/rbac/#privilege-escalation-prevention-and-bootstrapping
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;delete
+// +kubebuilder:rbac:groups="",resources=pods/log,verbs=get
+// +kubebuilder:rbac:groups=apps,resources=deployments;replicasets;statefulsets,verbs=get;list;patch;update
 
 var (
 	scheme   = runtime.NewScheme()
@@ -194,11 +200,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := (&controller.ExperimentTemplateReconciler{
+	if err := (&experimenttemplate.Reconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ExperimentTemplate")
+		os.Exit(1)
+	}
+	if err := (&experiment.Reconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Experiment")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

@@ -3,6 +3,7 @@
 # It should be run by config/default
 resources:
 - bases/fis.fis.dksshddl.dev_experimenttemplates.yaml
+- bases/fis.fis.dksshddl.dev_experiments.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

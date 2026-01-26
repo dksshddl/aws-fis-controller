@@ -282,6 +282,10 @@ type ExperimentTemplateStatus struct {
 	// +optional
 	Message string `json:"message,omitempty"`
 
+	// ObservedGeneration is the generation observed by the controller
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
 	// LastSyncTime is the last time the template was synced with AWS FIS
 	// +optional
 	LastSyncTime *metav1.Time `json:"lastSyncTime,omitempty"`

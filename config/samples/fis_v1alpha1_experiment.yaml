@@ -1,0 +1,9 @@
+apiVersion: fis.fis.dksshddl.dev/v1alpha1
+kind: Experiment
+metadata:
+  labels:
+    app.kubernetes.io/name: aws-fis-controller
+    app.kubernetes.io/managed-by: kustomize
+  name: experiment-sample
+spec:
+  # TODO(user): Add fields here
