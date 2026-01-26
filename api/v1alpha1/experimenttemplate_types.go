@@ -273,6 +273,11 @@ type ExperimentTemplateStatus struct {
 	// +optional
 	TemplateID string `json:"templateId,omitempty"`
 
+	// RoleArn is the ARN of the IAM role used by this experiment template
+	// This role is automatically created by the controller if not specified
+	// +optional
+	RoleArn string `json:"roleArn,omitempty"`
+
 	// Phase represents the current phase of the experiment template
 	// +kubebuilder:validation:Enum=Pending;Creating;Ready;Failed;Deleting
 	// +optional

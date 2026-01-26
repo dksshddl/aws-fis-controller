@@ -41,6 +41,7 @@ rules:
 - apiGroups:
   - fis.fis.dksshddl.dev
   resources:
+  - experiments
   - experimenttemplates
   verbs:
   - create
@@ -53,12 +54,14 @@ rules:
 - apiGroups:
   - fis.fis.dksshddl.dev
   resources:
+  - experiments/finalizers
   - experimenttemplates/finalizers
   verbs:
   - update
 - apiGroups:
   - fis.fis.dksshddl.dev
   resources:
+  - experiments/status
   - experimenttemplates/status
   verbs:
   - get

@@ -415,6 +415,11 @@ spec:
                 - Failed
                 - Deleting
                 type: string
+              roleArn:
+                description: |-
+                  RoleArn is the ARN of the IAM role used by this experiment template
+                  This role is automatically created by the controller if not specified
+                type: string
               templateId:
                 description: TemplateID is the AWS FIS experiment template ID
                 type: string

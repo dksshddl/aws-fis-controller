@@ -27,6 +27,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
 	"github.com/aws/aws-sdk-go-v2/service/fis"
 	"github.com/aws/aws-sdk-go-v2/service/fis/types"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/google/uuid"
 
 	fisv1alpha1 "fis.dksshddl.dev/fis-controller/api/v1alpha1"
@@ -34,7 +35,9 @@ import (
 
 // FISClient wraps AWS FIS client
 type FISClient struct {
-	client *fis.Client
+	client    *fis.Client
+	iamClient *IAMClient
+	awsConfig aws.Config
 }
 
 // FISConfig holds configuration for FIS client
@@ -72,9 +75,10 @@ func NewFISClient(ctx context.Context, cfg FISConfig) (*FISClient, error) {
 	}
 
 	// Load AWS config
+	// When running in Kubernetes with Pod Identity, credentials are automatically loaded
+	// from the container environment. For local development, it falls back to default profile.
 	awsConfig, err := config.LoadDefaultConfig(ctx,
 		config.WithRegion(region),
-		config.WithSharedConfigProfile("default"),
 		config.WithRetryer(func() aws.Retryer {
 			return retry.NewStandard(func(o *retry.StandardOptions) {
 				o.MaxAttempts = maxRetries
@@ -86,7 +90,9 @@ func NewFISClient(ctx context.Context, cfg FISConfig) (*FISClient, error) {
 	}
 
 	return &FISClient{
-		client: fis.NewFromConfig(awsConfig),
+		client:    fis.NewFromConfig(awsConfig),
+		iamClient: NewIAMClient(awsConfig),
+		awsConfig: awsConfig,
 	}, nil
 }
 
@@ -198,4 +204,67 @@ func (c *FISClient) GetExperimentTemplate(ctx context.Context, templateID string
 	}
 
 	return output.ExperimentTemplate, nil
+}
+
+// EnsureIAMRole ensures an IAM role exists for the experiment template
+// If roleArn is provided, it validates the role exists
+// If roleArn is empty, it creates a new role
+func (c *FISClient) EnsureIAMRole(ctx context.Context, namespace, templateName, roleArn string) (string, error) {
+	// If roleArn is provided, just return it (assume it's valid)
+	if roleArn != "" {
+		return roleArn, nil
+	}
+
+	// Generate role name
+	roleName := GenerateRoleName(namespace, templateName)
+
+	// Check if role already exists
+	exists, err := c.iamClient.RoleExists(ctx, roleName)
+	if err != nil {
+		return "", fmt.Errorf("failed to check if role exists: %w", err)
+	}
+
+	if exists {
+		// Role already exists, get its ARN
+		getRoleInput := &iam.GetRoleInput{
+			RoleName: aws.String(roleName),
+		}
+		getRoleOutput, err := c.iamClient.client.GetRole(ctx, getRoleInput)
+		if err != nil {
+			return "", fmt.Errorf("failed to get existing role: %w", err)
+		}
+		return aws.ToString(getRoleOutput.Role.Arn), nil
+	}
+
+	// Create new role
+	createdRoleArn, err := c.iamClient.CreateFISRole(ctx, roleName, namespace, templateName)
+	if err != nil {
+		return "", fmt.Errorf("failed to create IAM role: %w", err)
+	}
+
+	return createdRoleArn, nil
+}
+
+// DeleteIAMRole deletes the IAM role for an experiment template
+func (c *FISClient) DeleteIAMRole(ctx context.Context, namespace, templateName string) error {
+	roleName := GenerateRoleName(namespace, templateName)
+
+	// Check if role exists
+	exists, err := c.iamClient.RoleExists(ctx, roleName)
+	if err != nil {
+		return fmt.Errorf("failed to check if role exists: %w", err)
+	}
+
+	if !exists {
+		// Role doesn't exist, nothing to delete
+		return nil
+	}
+
+	// Delete the role
+	err = c.iamClient.DeleteFISRole(ctx, roleName)
+	if err != nil {
+		return fmt.Errorf("failed to delete IAM role: %w", err)
+	}
+
+	return nil
 }

@@ -28,14 +28,28 @@ import (
 )
 
 // getRequiredParameters extracts required parameters from environment or annotations
-func (r *Reconciler) getRequiredParameters(template *fisv1alpha1.ExperimentTemplate) (roleArn, clusterIdentifier, serviceAccount string, err error) {
-	// Get FIS Role ARN
+// If roleArn is not provided, it will be automatically created
+func (r *Reconciler) getRequiredParameters(ctx context.Context, template *fisv1alpha1.ExperimentTemplate) (roleArn, clusterIdentifier, serviceAccount string, err error) {
+	// Get FIS Role ARN (optional - will be auto-created if not provided)
 	roleArn = os.Getenv("FIS_ROLE_ARN")
 	if roleArn == "" {
 		if val, ok := template.Annotations["fis.dksshddl.dev/role-arn"]; ok {
 			roleArn = val
+		}
+	}
+
+	// If roleArn is still empty, ensure IAM role exists (create if needed)
+	if roleArn == "" {
+		// Check if we already have a role in status
+		if template.Status.RoleArn != "" {
+			roleArn = template.Status.RoleArn
 		} else {
-			return "", "", "", fmt.Errorf("FIS_ROLE_ARN environment variable or fis.dksshddl.dev/role-arn annotation is required")
+			// Create or get existing IAM role
+			createdRoleArn, err := r.FISClient.EnsureIAMRole(ctx, template.Namespace, template.Name, "")
+			if err != nil {
+				return "", "", "", fmt.Errorf("failed to ensure IAM role: %w", err)
+			}
+			roleArn = createdRoleArn
 		}
 	}
 
@@ -62,8 +76,8 @@ func (r *Reconciler) getRequiredParameters(template *fisv1alpha1.ExperimentTempl
 func (r *Reconciler) createFISExperimentTemplate(ctx context.Context, template *fisv1alpha1.ExperimentTemplate, log logr.Logger) (ctrl.Result, error) {
 	log.Info("Creating AWS FIS ExperimentTemplate")
 
-	// Get required parameters
-	roleArn, clusterIdentifier, serviceAccount, err := r.getRequiredParameters(template)
+	// Get required parameters (IAM role will be auto-created if needed)
+	roleArn, clusterIdentifier, serviceAccount, err := r.getRequiredParameters(ctx, template)
 	if err != nil {
 		log.Error(err, "Missing required configuration")
 		return ctrl.Result{}, err
@@ -82,10 +96,11 @@ func (r *Reconciler) createFISExperimentTemplate(ctx context.Context, template *
 		return ctrl.Result{}, err
 	}
 
-	log.Info("Successfully created AWS FIS ExperimentTemplate", "templateID", templateID)
+	log.Info("Successfully created AWS FIS ExperimentTemplate", "templateID", templateID, "roleArn", roleArn)
 
 	// Update status
 	template.Status.TemplateID = templateID
+	template.Status.RoleArn = roleArn
 	template.Status.Phase = "Ready"
 	template.Status.Message = "AWS FIS ExperimentTemplate created successfully"
 	template.Status.ObservedGeneration = template.Generation
@@ -102,7 +117,7 @@ func (r *Reconciler) updateFISExperimentTemplate(ctx context.Context, template *
 	log.Info("Updating AWS FIS ExperimentTemplate", "templateID", template.Status.TemplateID)
 
 	// Get required parameters
-	roleArn, clusterIdentifier, serviceAccount, err := r.getRequiredParameters(template)
+	roleArn, clusterIdentifier, serviceAccount, err := r.getRequiredParameters(ctx, template)
 	if err != nil {
 		log.Error(err, "Missing required configuration")
 		return ctrl.Result{}, err
@@ -123,6 +138,7 @@ func (r *Reconciler) updateFISExperimentTemplate(ctx context.Context, template *
 	log.Info("Successfully updated AWS FIS ExperimentTemplate", "templateID", template.Status.TemplateID)
 
 	// Update status
+	template.Status.RoleArn = roleArn
 	template.Status.Phase = "Ready"
 	template.Status.Message = "AWS FIS ExperimentTemplate updated successfully"
 	template.Status.ObservedGeneration = template.Generation
@@ -134,7 +150,7 @@ func (r *Reconciler) updateFISExperimentTemplate(ctx context.Context, template *
 	return ctrl.Result{}, nil
 }
 
-// handleDeletion handles the deletion of AWS FIS ExperimentTemplate
+// handleDeletion handles the deletion of AWS FIS ExperimentTemplate and IAM Role
 func (r *Reconciler) handleDeletion(ctx context.Context, template *fisv1alpha1.ExperimentTemplate, log logr.Logger) (ctrl.Result, error) {
 	log.Info("Deleting AWS FIS ExperimentTemplate", "templateID", template.Status.TemplateID)
 
@@ -145,6 +161,18 @@ func (r *Reconciler) handleDeletion(ctx context.Context, template *fisv1alpha1.E
 			return ctrl.Result{}, err
 		}
 		log.Info("Successfully deleted AWS FIS ExperimentTemplate", "templateID", template.Status.TemplateID)
+	}
+
+	// Delete IAM Role if it was auto-created (check if RoleArn is in status)
+	if template.Status.RoleArn != "" {
+		// Only delete if it's an auto-created role (follows our naming pattern)
+		if err := r.FISClient.DeleteIAMRole(ctx, template.Namespace, template.Name); err != nil {
+			log.Error(err, "Failed to delete IAM role")
+			// Don't fail the deletion if IAM role deletion fails
+			// Just log the error and continue
+		} else {
+			log.Info("Successfully deleted IAM role", "roleArn", template.Status.RoleArn)
+		}
 	}
 
 	return ctrl.Result{}, nil
