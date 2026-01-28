@@ -117,28 +117,48 @@ func (r *Reconciler) createFISExperimentTemplate(ctx context.Context, template *
 	log.Info("Successfully created AWS FIS ExperimentTemplate", "templateID", templateID, "roleArn", roleArn, "serviceAccount", serviceAccount)
 
 	// Create EKS Access Entry for the IAM role
+	// Username format: fis-{templateName} (matches RoleBinding subject)
+	username := fmt.Sprintf("fis-%s", template.Name)
 	if r.EKSClient != nil && r.ClusterName != "" && roleArn != "" {
-		log.Info("Creating EKS Access Entry for IAM role", "roleArn", roleArn, "clusterName", r.ClusterName)
+		log.Info("Creating EKS Access Entry for IAM role", "roleArn", roleArn, "clusterName", r.ClusterName, "username", username)
 
-		// If role was auto-created, wait a bit for IAM propagation
+		// If role was auto-created, wait for IAM propagation and retry
 		if template.Spec.AutoCreateRole {
 			log.Info("Waiting for IAM role propagation before creating access entry")
-			// Wait 5 seconds for IAM role to propagate
-			select {
-			case <-ctx.Done():
-				log.Info("Context cancelled while waiting for IAM propagation")
-			case <-time.After(5 * time.Second):
-				log.Info("IAM role propagation wait completed")
-			}
-		}
 
-		if err := awsfis.EnsureAccessEntry(ctx, r.EKSClient, r.ClusterName, roleArn); err != nil {
-			log.Error(err, "Failed to create EKS Access Entry", "roleArn", roleArn, "clusterName", r.ClusterName)
-			// Don't fail the creation if access entry creation fails
-			// The IAM role might need more time to propagate, or the user might need to create it manually
-			log.Info("Warning: EKS Access Entry creation failed. The IAM role may need more time to propagate, or you may need to create the access entry manually. You can also use aws-auth ConfigMap as an alternative.")
+			// Retry up to 3 times with increasing wait times
+			var accessEntryErr error
+			for attempt := 1; attempt <= 3; attempt++ {
+				waitTime := time.Duration(attempt*5) * time.Second
+				log.Info("Waiting for IAM role propagation", "attempt", attempt, "waitTime", waitTime)
+
+				select {
+				case <-ctx.Done():
+					log.Info("Context cancelled while waiting for IAM propagation")
+					break
+				case <-time.After(waitTime):
+				}
+
+				accessEntryErr = awsfis.EnsureAccessEntry(ctx, r.EKSClient, r.ClusterName, roleArn, username)
+				if accessEntryErr == nil {
+					log.Info("Successfully created EKS Access Entry", "roleArn", roleArn, "clusterName", r.ClusterName, "username", username, "attempt", attempt)
+					break
+				}
+				log.Info("Access Entry creation attempt failed, will retry", "attempt", attempt, "error", accessEntryErr.Error())
+			}
+
+			if accessEntryErr != nil {
+				log.Error(accessEntryErr, "Failed to create EKS Access Entry after retries", "roleArn", roleArn, "clusterName", r.ClusterName)
+				log.Info("Warning: EKS Access Entry creation failed. You may need to create the access entry manually using: aws eks create-access-entry --cluster-name " + r.ClusterName + " --principal-arn " + roleArn + " --username " + username)
+			}
 		} else {
-			log.Info("Successfully created EKS Access Entry", "roleArn", roleArn, "clusterName", r.ClusterName)
+			// For user-provided roles, try once without waiting
+			if err := awsfis.EnsureAccessEntry(ctx, r.EKSClient, r.ClusterName, roleArn, username); err != nil {
+				log.Error(err, "Failed to create EKS Access Entry", "roleArn", roleArn, "clusterName", r.ClusterName)
+				log.Info("Warning: EKS Access Entry creation failed. You may need to create the access entry manually.")
+			} else {
+				log.Info("Successfully created EKS Access Entry", "roleArn", roleArn, "clusterName", r.ClusterName, "username", username)
+			}
 		}
 	} else {
 		log.Info("Skipping EKS Access Entry creation", "hasEKSClient", r.EKSClient != nil, "hasClusterName", r.ClusterName != "", "hasRoleArn", roleArn != "")
@@ -192,15 +212,16 @@ func (r *Reconciler) updateFISExperimentTemplate(ctx context.Context, template *
 	log.Info("Successfully updated AWS FIS ExperimentTemplate", "templateID", template.Status.TemplateID)
 
 	// Ensure EKS Access Entry exists for the IAM role
+	username := fmt.Sprintf("fis-%s", template.Name)
 	if r.EKSClient != nil && r.ClusterName != "" && roleArn != "" {
-		log.Info("Ensuring EKS Access Entry for IAM role", "roleArn", roleArn, "clusterName", r.ClusterName)
+		log.Info("Ensuring EKS Access Entry for IAM role", "roleArn", roleArn, "clusterName", r.ClusterName, "username", username)
 
-		if err := awsfis.EnsureAccessEntry(ctx, r.EKSClient, r.ClusterName, roleArn); err != nil {
+		if err := awsfis.EnsureAccessEntry(ctx, r.EKSClient, r.ClusterName, roleArn, username); err != nil {
 			log.Error(err, "Failed to ensure EKS Access Entry", "roleArn", roleArn, "clusterName", r.ClusterName)
 			// Don't fail the update if access entry creation fails
 			log.Info("Warning: EKS Access Entry creation failed. You may need to create the access entry manually")
 		} else {
-			log.Info("Successfully ensured EKS Access Entry", "roleArn", roleArn, "clusterName", r.ClusterName)
+			log.Info("Successfully ensured EKS Access Entry", "roleArn", roleArn, "clusterName", r.ClusterName, "username", username)
 		}
 	}
 
@@ -228,6 +249,18 @@ func (r *Reconciler) handleDeletion(ctx context.Context, template *fisv1alpha1.E
 			return ctrl.Result{}, err
 		}
 		log.Info("Successfully deleted AWS FIS ExperimentTemplate", "templateID", template.Status.TemplateID)
+	}
+
+	// Delete EKS Access Entry if it exists
+	if r.EKSClient != nil && r.ClusterName != "" && template.Status.RoleArn != "" {
+		log.Info("Deleting EKS Access Entry", "roleArn", template.Status.RoleArn, "clusterName", r.ClusterName)
+		if err := awsfis.DeleteAccessEntryIfExists(ctx, r.EKSClient, r.ClusterName, template.Status.RoleArn); err != nil {
+			log.Error(err, "Failed to delete EKS Access Entry")
+			// Don't fail the deletion if access entry deletion fails
+			// Just log the error and continue
+		} else {
+			log.Info("Successfully deleted EKS Access Entry", "roleArn", template.Status.RoleArn)
+		}
 	}
 
 	// Delete IAM Role if it was auto-created (check if RoleArn is in status)

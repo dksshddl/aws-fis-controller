@@ -549,16 +549,6 @@ func (in *TargetSpec) DeepCopyInto(out *TargetSpec) {
 			(*out)[key] = val
 		}
 	}
-	if in.Count != nil {
-		in, out := &in.Count, &out.Count
-		*out = new(int)
-		**out = **in
-	}
-	if in.Percent != nil {
-		in, out := &in.Percent, &out.Percent
-		*out = new(int)
-		**out = **in
-	}
 	if in.Filters != nil {
 		in, out := &in.Filters, &out.Filters
 		*out = make([]TargetFilter, len(*in))

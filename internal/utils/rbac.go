@@ -164,8 +164,10 @@ func createRoleBinding(ctx context.Context, clientset *kubernetes.Clientset, nam
 
 // SetupExperimentTemplateRBAC creates Kubernetes RBAC resources for an ExperimentTemplate
 // This creates a ServiceAccount, Role, and RoleBinding in the target namespace
+// ref. https://docs.aws.amazon.com/fis/latest/userguide/eks-pod-actions.html#configure-service-account
 func SetupExperimentTemplateRBAC(ctx context.Context, k8sClient client.Client, namespace, templateName string) (string, error) {
 	serviceAccountName := fmt.Sprintf("fis-%s", templateName)
+	username := fmt.Sprintf("fis-%s", templateName)
 
 	// Create ServiceAccount
 	sa := &corev1.ServiceAccount{
@@ -185,7 +187,7 @@ func SetupExperimentTemplateRBAC(ctx context.Context, k8sClient client.Client, n
 		}
 	}
 
-	// Create Role with permissions for FIS pod
+	// Create Role with permissions for FIS pod (based on official AWS FIS documentation)
 	roleName := fmt.Sprintf("fis-%s", templateName)
 	role := &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
@@ -199,23 +201,28 @@ func SetupExperimentTemplateRBAC(ctx context.Context, k8sClient client.Client, n
 		Rules: []rbacv1.PolicyRule{
 			{
 				APIGroups: []string{""},
-				Resources: []string{"pods"},
-				Verbs:     []string{"get", "list", "delete"},
+				Resources: []string{"configmaps"},
+				Verbs:     []string{"get", "create", "patch", "delete"},
 			},
 			{
 				APIGroups: []string{""},
-				Resources: []string{"pods/log"},
-				Verbs:     []string{"get"},
+				Resources: []string{"pods"},
+				Verbs:     []string{"create", "list", "get", "delete", "deletecollection"},
 			},
 			{
 				APIGroups: []string{""},
 				Resources: []string{"pods/ephemeralcontainers"},
-				Verbs:     []string{"patch", "update"},
+				Verbs:     []string{"update"},
+			},
+			{
+				APIGroups: []string{""},
+				Resources: []string{"pods/exec"},
+				Verbs:     []string{"create"},
 			},
 			{
 				APIGroups: []string{"apps"},
-				Resources: []string{"deployments", "replicasets", "statefulsets"},
-				Verbs:     []string{"get", "list", "patch", "update"},
+				Resources: []string{"deployments"},
+				Verbs:     []string{"get"},
 			},
 		},
 	}
@@ -226,7 +233,7 @@ func SetupExperimentTemplateRBAC(ctx context.Context, k8sClient client.Client, n
 		}
 	}
 
-	// Create RoleBinding
+	// Create RoleBinding (binds both ServiceAccount and dynamic username)
 	roleBindingName := fmt.Sprintf("fis-%s", templateName)
 	roleBinding := &rbacv1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
@@ -242,6 +249,11 @@ func SetupExperimentTemplateRBAC(ctx context.Context, k8sClient client.Client, n
 				Kind:      "ServiceAccount",
 				Name:      serviceAccountName,
 				Namespace: namespace,
+			},
+			{
+				APIGroup: "rbac.authorization.k8s.io",
+				Kind:     "User",
+				Name:     username,
 			},
 		},
 		RoleRef: rbacv1.RoleRef{

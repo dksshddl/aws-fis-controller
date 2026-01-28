@@ -55,11 +55,11 @@ func GetClusterARNFromConfig(ctx context.Context, awsConfig aws.Config, clusterN
 }
 
 // CreateAccessEntry creates an EKS access entry for the given IAM role
-func (c *EKSClient) CreateAccessEntry(ctx context.Context, clusterName, principalArn string) error {
+func (c *EKSClient) CreateAccessEntry(ctx context.Context, clusterName, principalArn, username string) error {
 	input := &eks.CreateAccessEntryInput{
 		ClusterName:  aws.String(clusterName),
 		PrincipalArn: aws.String(principalArn),
-		Username:     aws.String("fis-experiment"),
+		Username:     aws.String(username),
 		Tags: map[string]string{
 			"ManagedBy":              "aws-fis-controller",
 			"kubernetes.io/role-arn": principalArn,
@@ -109,8 +109,8 @@ func (c *EKSClient) AccessEntryExists(ctx context.Context, clusterName, principa
 }
 
 // EnsureAccessEntry ensures an access entry exists for the given IAM role
-// If it doesn't exist, it creates one
-func EnsureAccessEntry(ctx context.Context, eksClient *EKSClient, clusterName, principalArn string) error {
+// If it doesn't exist, it creates one with the specified username
+func EnsureAccessEntry(ctx context.Context, eksClient *EKSClient, clusterName, principalArn, username string) error {
 	exists, err := eksClient.AccessEntryExists(ctx, clusterName, principalArn)
 	if err != nil {
 		return fmt.Errorf("failed to check if access entry exists: %w", err)
@@ -122,7 +122,7 @@ func EnsureAccessEntry(ctx context.Context, eksClient *EKSClient, clusterName, p
 	}
 
 	// Create access entry
-	if err := eksClient.CreateAccessEntry(ctx, clusterName, principalArn); err != nil {
+	if err := eksClient.CreateAccessEntry(ctx, clusterName, principalArn, username); err != nil {
 		return fmt.Errorf("failed to create access entry: %w", err)
 	}
 

@@ -156,16 +156,44 @@ func (c *FISClient) CreateExperimentTemplate(ctx context.Context, template *fisv
 }
 
 // UpdateExperimentTemplate updates an AWS FIS experiment template
-// Note: AWS FIS Update API has limitations, only description is updated for now
 func (c *FISClient) UpdateExperimentTemplate(ctx context.Context, template *fisv1alpha1.ExperimentTemplate, templateID, roleArn, clusterIdentifier, serviceAccount string) error {
 	input := &fis.UpdateExperimentTemplateInput{
 		Id:          aws.String(templateID),
 		Description: aws.String(template.Spec.Description),
+		RoleArn:     aws.String(roleArn),
 	}
 
-	// Update the experiment template (only description for now)
-	// For full updates, consider delete + recreate pattern
-	_, err := c.client.UpdateExperimentTemplate(ctx, input)
+	// Convert targets for update
+	targets, err := c.convertTargetsForUpdate(template.Spec.Targets, clusterIdentifier)
+	if err != nil {
+		return fmt.Errorf("failed to convert targets: %w", err)
+	}
+	input.Targets = targets
+
+	// Convert actions for update
+	actions, err := c.convertActionsForUpdate(template.Spec.Actions, serviceAccount)
+	if err != nil {
+		return fmt.Errorf("failed to convert actions: %w", err)
+	}
+	input.Actions = actions
+
+	// Convert stop conditions for update
+	if len(template.Spec.StopConditions) > 0 {
+		input.StopConditions = c.convertStopConditionsForUpdate(template.Spec.StopConditions)
+	}
+
+	// Convert experiment options for update
+	if template.Spec.ExperimentOptions != nil {
+		input.ExperimentOptions = c.convertExperimentOptionsForUpdate(template.Spec.ExperimentOptions)
+	}
+
+	// Convert log configuration for update
+	if template.Spec.LogConfiguration != nil {
+		input.LogConfiguration = c.convertLogConfigurationForUpdate(template.Spec.LogConfiguration)
+	}
+
+	// Update the experiment template
+	_, err = c.client.UpdateExperimentTemplate(ctx, input)
 	if err != nil {
 		return fmt.Errorf("failed to update experiment template: %w", err)
 	}

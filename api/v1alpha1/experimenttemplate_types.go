@@ -91,29 +91,18 @@ type TargetSpec struct {
 	// +required
 	LabelSelector map[string]string `json:"labelSelector"`
 
-	// SelectionMode defines how to select pods (ALL, COUNT, PERCENT)
-	// +kubebuilder:validation:Enum=ALL;COUNT;PERCENT
+	// Scope specifies how many pods to target.
+	// Examples: "ALL" (all matching pods), "3" (exactly 3 pods), "50%" (50% of pods)
 	// +kubebuilder:default=ALL
 	// +optional
-	SelectionMode string `json:"selectionMode,omitempty"`
+	Scope string `json:"scope,omitempty"`
 
-	// Count specifies the number of pods to select when SelectionMode is COUNT
-	// +kubebuilder:validation:Minimum=1
+	// Container specifies which container in the pod to target
+	// If not specified, the first container in the pod is targeted
 	// +optional
-	Count *int `json:"count,omitempty"`
-
-	// Percent specifies the percentage of pods to select when SelectionMode is PERCENT
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:validation:Maximum=100
-	// +optional
-	Percent *int `json:"percent,omitempty"`
-
-	// TargetContainerName specifies which container in the pod to target
-	// +optional
-	TargetContainerName string `json:"targetContainerName,omitempty"`
+	Container string `json:"container,omitempty"`
 
 	// Filters for additional target selection criteria
-	// TODO: Implement filter support for advanced target selection
 	// +optional
 	Filters []TargetFilter `json:"filters,omitempty"`
 }

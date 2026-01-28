@@ -49,7 +49,12 @@ type Reconciler struct {
 // +kubebuilder:rbac:groups=fis.fis.dksshddl.dev,resources=experimenttemplates/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=fis.fis.dksshddl.dev,resources=experimenttemplates/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;create;patch;delete
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;create;delete;deletecollection
+// +kubebuilder:rbac:groups="",resources=pods/ephemeralcontainers,verbs=update
+// +kubebuilder:rbac:groups="",resources=pods/exec,verbs=create
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch;delete;escalate;bind
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop

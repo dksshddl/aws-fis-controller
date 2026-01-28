@@ -278,11 +278,11 @@ spec:
                 items:
                   description: TargetSpec defines the target pods for the experiment
                   properties:
-                    count:
-                      description: Count specifies the number of pods to select when
-                        SelectionMode is COUNT
-                      minimum: 1
-                      type: integer
+                    container:
+                      description: |-
+                        Container specifies which container in the pod to target
+                        If not specified, the first container in the pod is targeted
+                      type: string
                     filters:
                       description: Filters for additional target selection criteria
                       items:
@@ -316,24 +316,11 @@ spec:
                       default: default
                       description: Namespace where the target pods are located
                       type: string
-                    percent:
-                      description: Percent specifies the percentage of pods to select
-                        when SelectionMode is PERCENT
-                      maximum: 100
-                      minimum: 1
-                      type: integer
-                    selectionMode:
+                    scope:
                       default: ALL
-                      description: SelectionMode defines how to select pods (ALL,
-                        COUNT, PERCENT)
-                      enum:
-                      - ALL
-                      - COUNT
-                      - PERCENT
-                      type: string
-                    targetContainerName:
-                      description: TargetContainerName specifies which container in
-                        the pod to target
+                      description: |-
+                        Scope specifies how many pods to target.
+                        Examples: "ALL" (all matching pods), "3" (exactly 3 pods), "50%" (50% of pods)
                       type: string
                   required:
                   - labelSelector
