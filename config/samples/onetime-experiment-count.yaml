@@ -3,11 +3,11 @@ kind: Experiment
 metadata:
   labels:
     app.kubernetes.io/name: aws-fis-controller
-  name: onetime-disk-stress
+  name: onetime-disk-stress-count
 spec:
   # Reference ExperimentTemplate by name (cluster-scoped)
   experimentTemplate:
-    name: "disk-stress-experiment"
+    name: "low-disk-stress-experiment-count"
   
   # No schedule = one-time execution (Job mode)
   # Experiment will start immediately when created

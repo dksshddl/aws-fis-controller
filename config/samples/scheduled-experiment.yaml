@@ -7,10 +7,10 @@ metadata:
 spec:
   # Reference ExperimentTemplate by name (cluster-scoped)
   experimentTemplate:
-    name: "disk-stress-experiment"
+    name: "low-disk-stress-experiment-all"
   
-  # Run every day at 2am
-  schedule: "0 2 * * *"
+  # Run every minute for testing
+  schedule: "* * * * *"
   
   # Keep last 3 successful and 1 failed experiment history
   successfulExperimentsHistoryLimit: 3

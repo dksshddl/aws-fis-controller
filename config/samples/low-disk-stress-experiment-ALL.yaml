@@ -1,7 +1,7 @@
 apiVersion: fis.fis.dksshddl.dev/v1alpha1
 kind: ExperimentTemplate
 metadata:
-  name: low-disk-stress-experiment-ALL
+  name: low-disk-stress-experiment-all
 spec:
   description: "Inject increasing disk I/O stress on nginx pods"
   autoCreateRole: true
@@ -33,7 +33,5 @@ spec:
   - source: none
   
   tags:
-  - key: Name
-    value: "EKS Stress: Disk I/O"
   - key: Environment
     value: "test"

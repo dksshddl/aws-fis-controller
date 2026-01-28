@@ -33,7 +33,5 @@ spec:
   - source: none
   
   tags:
-  - key: Name
-    value: "EKS Stress: Disk I/O"
   - key: Environment
     value: "test"
