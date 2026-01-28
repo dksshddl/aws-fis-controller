@@ -128,6 +128,7 @@ func (r *Reconciler) createFISExperimentTemplate(ctx context.Context, template *
 
 			// Retry up to 3 times with increasing wait times
 			var accessEntryErr error
+			contextCancelled := false
 			for attempt := 1; attempt <= 3; attempt++ {
 				waitTime := time.Duration(attempt*5) * time.Second
 				log.Info("Waiting for IAM role propagation", "attempt", attempt, "waitTime", waitTime)
@@ -135,8 +136,12 @@ func (r *Reconciler) createFISExperimentTemplate(ctx context.Context, template *
 				select {
 				case <-ctx.Done():
 					log.Info("Context cancelled while waiting for IAM propagation")
-					break
+					contextCancelled = true
 				case <-time.After(waitTime):
+				}
+
+				if contextCancelled {
+					break
 				}
 
 				accessEntryErr = awsfis.EnsureAccessEntry(ctx, r.EKSClient, r.ClusterName, roleArn, username)
