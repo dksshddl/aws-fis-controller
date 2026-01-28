@@ -24,9 +24,12 @@ rules:
   - serviceaccounts
   verbs:
   - create
+  - delete
   - get
   - list
+  - patch
   - update
+  - watch
 - apiGroups:
   - apps
   resources:
@@ -77,4 +80,6 @@ rules:
   - delete
   - get
   - list
+  - patch
   - update
+  - watch

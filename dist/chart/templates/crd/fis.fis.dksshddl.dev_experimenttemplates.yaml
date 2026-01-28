@@ -1,0 +1,440 @@
+{{- if .Values.crd.enable }}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+  annotations:
+    {{- if .Values.crd.keep }}
+    "helm.sh/resource-policy": keep
+    {{- end }}
+    controller-gen.kubebuilder.io/version: v0.19.0
+  name: experimenttemplates.fis.fis.dksshddl.dev
+spec:
+  group: fis.fis.dksshddl.dev
+  names:
+    kind: ExperimentTemplate
+    listKind: ExperimentTemplateList
+    plural: experimenttemplates
+    shortNames:
+    - fisexp
+    - fistemplate
+    singular: experimenttemplate
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.templateId
+      name: Template ID
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: ExperimentTemplate is the Schema for the experimenttemplates
+          API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of ExperimentTemplate
+            properties:
+              actions:
+                description: Actions defines the chaos actions to perform
+                items:
+                  description: ActionSpec defines a chaos action to perform
+                  properties:
+                    description:
+                      description: Description of the action
+                      type: string
+                    duration:
+                      description: Duration of the action (e.g., "5m", "10m", "1h")
+                      pattern: ^\d+[smh]$
+                      type: string
+                    name:
+                      description: Name is a unique identifier for this action
+                      pattern: ^[a-zA-Z0-9-]+$
+                      type: string
+                    parameters:
+                      additionalProperties:
+                        type: string
+                      description: Parameters for the action (e.g., percent, delayMilliseconds)
+                      type: object
+                    startAfter:
+                      description: StartAfter lists action names that must complete
+                        before this action starts
+                      items:
+                        type: string
+                      type: array
+                    target:
+                      description: Target is the name of the target to apply this
+                        action to
+                      type: string
+                    type:
+                      description: Type is the action type (pod-cpu-stress, pod-memory-stress,
+                        pod-io-stress, pod-network-latency, etc.)
+                      enum:
+                      - pod-cpu-stress
+                      - pod-memory-stress
+                      - pod-io-stress
+                      - pod-network-latency
+                      - pod-network-packet-loss
+                      - pod-delete
+                      type: string
+                  required:
+                  - duration
+                  - name
+                  - target
+                  - type
+                  type: object
+                minItems: 1
+                type: array
+              description:
+                description: Description of the experiment template
+                type: string
+              experimentOptions:
+                description: ExperimentOptions defines experiment-level options
+                properties:
+                  accountTargeting:
+                    default: single-account
+                    description: AccountTargeting defines the account targeting mode
+                    enum:
+                    - single-account
+                    - multi-account
+                    type: string
+                  emptyTargetResolutionMode:
+                    default: fail
+                    description: EmptyTargetResolutionMode defines behavior when no
+                      targets are found
+                    enum:
+                    - fail
+                    - skip
+                    type: string
+                type: object
+              experimentReportConfiguration:
+                description: ExperimentReportConfiguration defines experiment report
+                  settings
+                properties:
+                  dataSources:
+                    description: DataSources defines data sources for the report
+                    properties:
+                      cloudWatchDashboards:
+                        description: CloudWatchDashboards is a list of CloudWatch
+                          dashboard ARNs
+                        items:
+                          description: CloudWatchDashboard represents a CloudWatch
+                            dashboard reference
+                          properties:
+                            dashboardIdentifier:
+                              description: DashboardIdentifier is the ARN of the CloudWatch
+                                dashboard
+                              pattern: ^arn:aws:cloudwatch::[0-9]{12}:dashboard/.+$
+                              type: string
+                          required:
+                          - dashboardIdentifier
+                          type: object
+                        type: array
+                    type: object
+                  outputs:
+                    description: Outputs defines where to store the report
+                    properties:
+                      s3Configuration:
+                        description: S3Configuration defines S3 settings for report
+                          output
+                        properties:
+                          bucketName:
+                            description: BucketName is the name of the S3 bucket
+                            maxLength: 63
+                            minLength: 3
+                            type: string
+                          prefix:
+                            description: Prefix is the S3 key prefix
+                            type: string
+                        required:
+                        - bucketName
+                        type: object
+                    type: object
+                  postExperimentDuration:
+                    description: PostExperimentDuration is the duration after the
+                      experiment to include in the report (e.g., "20m")
+                    pattern: ^\d+[smh]$
+                    type: string
+                  preExperimentDuration:
+                    description: PreExperimentDuration is the duration before the
+                      experiment to include in the report (e.g., "20m")
+                    pattern: ^\d+[smh]$
+                    type: string
+                type: object
+              logConfiguration:
+                description: LogConfiguration defines where to send experiment logs
+                properties:
+                  cloudWatchLogsConfiguration:
+                    description: CloudWatchLogsConfiguration defines CloudWatch Logs
+                      settings
+                    properties:
+                      logGroupArn:
+                        description: LogGroupArn is the ARN of the CloudWatch log
+                          group
+                        pattern: ^arn:aws:logs:[a-z0-9-]+:\d{12}:log-group:.+$
+                        type: string
+                    required:
+                    - logGroupArn
+                    type: object
+                  logSchemaVersion:
+                    default: 2
+                    description: LogSchemaVersion is the schema version for logs
+                    minimum: 1
+                    type: integer
+                  s3Configuration:
+                    description: S3Configuration defines S3 logging settings
+                    properties:
+                      bucketName:
+                        description: BucketName is the name of the S3 bucket
+                        maxLength: 63
+                        minLength: 3
+                        type: string
+                      prefix:
+                        description: Prefix is the S3 key prefix
+                        type: string
+                    required:
+                    - bucketName
+                    type: object
+                type: object
+              stopConditions:
+                description: StopConditions defines conditions that will stop the
+                  experiment
+                items:
+                  description: StopCondition defines a condition that will stop the
+                    experiment
+                  properties:
+                    source:
+                      description: Source is the source of the stop condition (e.g.,
+                        "cloudwatch-alarm", "none")
+                      enum:
+                      - cloudwatch-alarm
+                      - none
+                      type: string
+                    value:
+                      description: Value is the ARN of the CloudWatch alarm (required
+                        when source is cloudwatch-alarm)
+                      type: string
+                  required:
+                  - source
+                  type: object
+                type: array
+              tags:
+                description: Tags to apply to the FIS experiment template
+                items:
+                  description: Tag represents a key-value pair for tagging resources
+                  properties:
+                    key:
+                      description: Key is the tag key
+                      maxLength: 128
+                      minLength: 1
+                      type: string
+                    value:
+                      description: Value is the tag value
+                      maxLength: 256
+                      type: string
+                  required:
+                  - key
+                  - value
+                  type: object
+                type: array
+              targets:
+                description: Targets defines which pods to target for the experiment
+                items:
+                  description: TargetSpec defines the target pods for the experiment
+                  properties:
+                    count:
+                      description: Count specifies the number of pods to select when
+                        SelectionMode is COUNT
+                      minimum: 1
+                      type: integer
+                    filters:
+                      description: Filters for additional target selection criteria
+                      items:
+                        description: TargetFilter defines additional filtering criteria
+                          for target selection
+                        properties:
+                          path:
+                            description: Path is the JSON path to filter on
+                            type: string
+                          values:
+                            description: Values are the values to match
+                            items:
+                              type: string
+                            type: array
+                        required:
+                        - path
+                        - values
+                        type: object
+                      type: array
+                    labelSelector:
+                      additionalProperties:
+                        type: string
+                      description: LabelSelector to select target pods (key-value
+                        pairs)
+                      type: object
+                    name:
+                      description: Name is a unique identifier for this target
+                      pattern: ^[a-zA-Z0-9-]+$
+                      type: string
+                    namespace:
+                      default: default
+                      description: Namespace where the target pods are located
+                      type: string
+                    percent:
+                      description: Percent specifies the percentage of pods to select
+                        when SelectionMode is PERCENT
+                      maximum: 100
+                      minimum: 1
+                      type: integer
+                    selectionMode:
+                      default: ALL
+                      description: SelectionMode defines how to select pods (ALL,
+                        COUNT, PERCENT)
+                      enum:
+                      - ALL
+                      - COUNT
+                      - PERCENT
+                      type: string
+                    targetContainerName:
+                      description: TargetContainerName specifies which container in
+                        the pod to target
+                      type: string
+                  required:
+                  - labelSelector
+                  - name
+                  type: object
+                minItems: 1
+                type: array
+            required:
+            - actions
+            - targets
+            type: object
+          status:
+            description: status defines the observed state of ExperimentTemplate
+            properties:
+              conditions:
+                description: Conditions represent the current state of the ExperimentTemplate
+                  resource.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              lastSyncTime:
+                description: LastSyncTime is the last time the template was synced
+                  with AWS FIS
+                format: date-time
+                type: string
+              message:
+                description: Message provides additional information about the current
+                  state
+                type: string
+              observedGeneration:
+                description: ObservedGeneration is the generation observed by the
+                  controller
+                format: int64
+                type: integer
+              phase:
+                description: Phase represents the current phase of the experiment
+                  template
+                enum:
+                - Pending
+                - Creating
+                - Ready
+                - Failed
+                - Deleting
+                type: string
+              roleArn:
+                description: |-
+                  RoleArn is the ARN of the IAM role used by this experiment template
+                  This role is automatically created by the controller if not specified
+                type: string
+              templateId:
+                description: TemplateID is the AWS FIS experiment template ID
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+{{- end -}}

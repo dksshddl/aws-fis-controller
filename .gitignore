@@ -4,3 +4,5 @@ hack/podman-dns-setup.sh
 
 # Vendor directory (created by 'make vendor')
 vendor/
+
+dist/chart/my_values.yaml

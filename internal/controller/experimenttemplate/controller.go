@@ -37,15 +37,20 @@ const (
 // Reconciler reconciles a ExperimentTemplate object
 type Reconciler struct {
 	client.Client
-	Scheme     *runtime.Scheme
-	FISClient  *awsfis.FISClient
-	IAMClient  *awsfis.IAMClient
-	ClusterARN string
+	Scheme      *runtime.Scheme
+	FISClient   *awsfis.FISClient
+	IAMClient   *awsfis.IAMClient
+	EKSClient   *awsfis.EKSClient
+	ClusterARN  string
+	ClusterName string
 }
 
 // +kubebuilder:rbac:groups=fis.fis.dksshddl.dev,resources=experimenttemplates,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=fis.fis.dksshddl.dev,resources=experimenttemplates/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=fis.fis.dksshddl.dev,resources=experimenttemplates/finalizers,verbs=update
+// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {

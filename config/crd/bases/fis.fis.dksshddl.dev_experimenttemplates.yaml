@@ -103,6 +103,13 @@ spec:
                   type: object
                 minItems: 1
                 type: array
+              autoCreateRole:
+                default: false
+                description: |-
+                  AutoCreateRole enables automatic IAM role creation (Option 2: Opt-in)
+                  When true, the controller will create an IAM role with necessary permissions
+                  Default is false for security reasons - users should provide their own role
+                type: boolean
               description:
                 description: Description of the experiment template
                 type: string
@@ -214,6 +221,17 @@ spec:
                     - bucketName
                     type: object
                 type: object
+              roleArn:
+                description: |-
+                  RoleArn is the ARN of the IAM role for FIS to use (Option 1: Recommended)
+                  If not provided, the controller can auto-create a role if AutoCreateRole is true
+                type: string
+              roleName:
+                description: |-
+                  RoleName specifies the name for the auto-created IAM role
+                  Only used when AutoCreateRole is true
+                  If not specified, defaults to "fis-{namespace}-{templateName}"
+                type: string
               stopConditions:
                 description: StopConditions defines conditions that will stop the
                   experiment

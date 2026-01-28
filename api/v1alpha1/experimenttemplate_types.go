@@ -26,6 +26,24 @@ type ExperimentTemplateSpec struct {
 	// +optional
 	Description string `json:"description,omitempty"`
 
+	// RoleArn is the ARN of the IAM role for FIS to use (Option 1: Recommended)
+	// If not provided, the controller can auto-create a role if AutoCreateRole is true
+	// +optional
+	RoleArn string `json:"roleArn,omitempty"`
+
+	// AutoCreateRole enables automatic IAM role creation (Option 2: Opt-in)
+	// When true, the controller will create an IAM role with necessary permissions
+	// Default is false for security reasons - users should provide their own role
+	// +kubebuilder:default=false
+	// +optional
+	AutoCreateRole bool `json:"autoCreateRole,omitempty"`
+
+	// RoleName specifies the name for the auto-created IAM role
+	// Only used when AutoCreateRole is true
+	// If not specified, defaults to "fis-{namespace}-{templateName}"
+	// +optional
+	RoleName string `json:"roleName,omitempty"`
+
 	// Targets defines which pods to target for the experiment
 	// +kubebuilder:validation:MinItems=1
 	// +required

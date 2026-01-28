@@ -236,11 +236,13 @@ func main() {
 	}
 
 	if err := (&experimenttemplate.Reconciler{
-		Client:     mgr.GetClient(),
-		Scheme:     mgr.GetScheme(),
-		FISClient:  fisClient,
-		IAMClient:  iamClient,
-		ClusterARN: clusterARN,
+		Client:      mgr.GetClient(),
+		Scheme:      mgr.GetScheme(),
+		FISClient:   fisClient,
+		IAMClient:   iamClient,
+		EKSClient:   eksClient,
+		ClusterARN:  clusterARN,
+		ClusterName: clusterName,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ExperimentTemplate")
 		os.Exit(1)

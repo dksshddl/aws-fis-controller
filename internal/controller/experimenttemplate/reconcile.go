@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/go-logr/logr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -115,6 +116,34 @@ func (r *Reconciler) createFISExperimentTemplate(ctx context.Context, template *
 
 	log.Info("Successfully created AWS FIS ExperimentTemplate", "templateID", templateID, "roleArn", roleArn, "serviceAccount", serviceAccount)
 
+	// Create EKS Access Entry for the IAM role
+	if r.EKSClient != nil && r.ClusterName != "" && roleArn != "" {
+		log.Info("Creating EKS Access Entry for IAM role", "roleArn", roleArn, "clusterName", r.ClusterName)
+
+		// If role was auto-created, wait a bit for IAM propagation
+		if template.Spec.AutoCreateRole {
+			log.Info("Waiting for IAM role propagation before creating access entry")
+			// Wait 5 seconds for IAM role to propagate
+			select {
+			case <-ctx.Done():
+				log.Info("Context cancelled while waiting for IAM propagation")
+			case <-time.After(5 * time.Second):
+				log.Info("IAM role propagation wait completed")
+			}
+		}
+
+		if err := awsfis.EnsureAccessEntry(ctx, r.EKSClient, r.ClusterName, roleArn); err != nil {
+			log.Error(err, "Failed to create EKS Access Entry", "roleArn", roleArn, "clusterName", r.ClusterName)
+			// Don't fail the creation if access entry creation fails
+			// The IAM role might need more time to propagate, or the user might need to create it manually
+			log.Info("Warning: EKS Access Entry creation failed. The IAM role may need more time to propagate, or you may need to create the access entry manually. You can also use aws-auth ConfigMap as an alternative.")
+		} else {
+			log.Info("Successfully created EKS Access Entry", "roleArn", roleArn, "clusterName", r.ClusterName)
+		}
+	} else {
+		log.Info("Skipping EKS Access Entry creation", "hasEKSClient", r.EKSClient != nil, "hasClusterName", r.ClusterName != "", "hasRoleArn", roleArn != "")
+	}
+
 	// Update status
 	template.Status.TemplateID = templateID
 	template.Status.RoleArn = roleArn
@@ -161,6 +190,19 @@ func (r *Reconciler) updateFISExperimentTemplate(ctx context.Context, template *
 	}
 
 	log.Info("Successfully updated AWS FIS ExperimentTemplate", "templateID", template.Status.TemplateID)
+
+	// Ensure EKS Access Entry exists for the IAM role
+	if r.EKSClient != nil && r.ClusterName != "" && roleArn != "" {
+		log.Info("Ensuring EKS Access Entry for IAM role", "roleArn", roleArn, "clusterName", r.ClusterName)
+
+		if err := awsfis.EnsureAccessEntry(ctx, r.EKSClient, r.ClusterName, roleArn); err != nil {
+			log.Error(err, "Failed to ensure EKS Access Entry", "roleArn", roleArn, "clusterName", r.ClusterName)
+			// Don't fail the update if access entry creation fails
+			log.Info("Warning: EKS Access Entry creation failed. You may need to create the access entry manually")
+		} else {
+			log.Info("Successfully ensured EKS Access Entry", "roleArn", roleArn, "clusterName", r.ClusterName)
+		}
+	}
 
 	// Update status
 	template.Status.RoleArn = roleArn
