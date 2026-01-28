@@ -127,11 +127,11 @@ func (r *Reconciler) resolveTemplateID(ctx context.Context, experiment *fisv1alp
 	}
 
 	// If Name is provided, look up the ExperimentTemplate CRD
+	// ExperimentTemplate is cluster-scoped, so no namespace needed
 	if experiment.Spec.ExperimentTemplate.Name != "" {
 		template := &fisv1alpha1.ExperimentTemplate{}
 		namespacedName := types.NamespacedName{
-			Name:      experiment.Spec.ExperimentTemplate.Name,
-			Namespace: experiment.Namespace,
+			Name: experiment.Spec.ExperimentTemplate.Name,
 		}
 		if err := r.Get(ctx, namespacedName, template); err != nil {
 			return "", fmt.Errorf("failed to get ExperimentTemplate %s: %w", experiment.Spec.ExperimentTemplate.Name, err)
@@ -173,40 +173,65 @@ func (r *Reconciler) handleScheduledExperiment(ctx context.Context, experiment *
 	}
 
 	now := time.Now()
-	var nextScheduleTime time.Time
 
-	// Calculate next schedule time
+	// Determine if we should run now based on LastScheduleTime
+	shouldRun := false
+	var missedRun *time.Time
+
 	if experiment.Status.LastScheduleTime == nil {
-		// First time scheduling
-		nextScheduleTime = schedule.Next(now)
+		// Never run before - check if there's a schedule time that has passed
+		// For first run, we start from creation time
+		creationTime := experiment.CreationTimestamp.Time
+		nextAfterCreation := schedule.Next(creationTime)
+		if !nextAfterCreation.After(now) {
+			shouldRun = true
+			missedRun = &nextAfterCreation
+		}
 	} else {
+		// Check if we missed any scheduled runs since last execution
+		nextAfterLast := schedule.Next(experiment.Status.LastScheduleTime.Time)
+		if !nextAfterLast.After(now) {
+			shouldRun = true
+			missedRun = &nextAfterLast
+		}
+	}
+
+	// Calculate next schedule time for status
+	var nextScheduleTime time.Time
+	if shouldRun && missedRun != nil {
+		nextScheduleTime = schedule.Next(*missedRun)
+	} else if experiment.Status.LastScheduleTime != nil {
 		nextScheduleTime = schedule.Next(experiment.Status.LastScheduleTime.Time)
-		// If next schedule time is in the past, calculate from now
-		if nextScheduleTime.Before(now) {
+		if !nextScheduleTime.After(now) {
 			nextScheduleTime = schedule.Next(now)
 		}
+	} else {
+		nextScheduleTime = schedule.Next(now)
 	}
 
-	// Update next schedule time in status
+	// Update next schedule time in status (don't return, continue processing)
 	nextScheduleTimeMeta := metav1.NewTime(nextScheduleTime)
+	statusChanged := false
 	if experiment.Status.NextScheduleTime == nil || !experiment.Status.NextScheduleTime.Equal(&nextScheduleTimeMeta) {
 		experiment.Status.NextScheduleTime = &nextScheduleTimeMeta
-		if err := r.Status().Update(ctx, experiment); err != nil {
-			log.Error(err, "Failed to update next schedule time")
-			return ctrl.Result{}, err
-		}
+		statusChanged = true
 	}
 
-	// Check if it's time to run
-	if now.Before(nextScheduleTime) {
-		// Not time yet, requeue at next schedule time
+	if !shouldRun {
+		// Not time yet, update status if needed and requeue
+		if statusChanged {
+			if err := r.Status().Update(ctx, experiment); err != nil {
+				log.Error(err, "Failed to update next schedule time")
+				return ctrl.Result{}, err
+			}
+		}
 		requeueAfter := nextScheduleTime.Sub(now)
 		log.Info("Experiment scheduled", "nextRun", nextScheduleTime, "requeueAfter", requeueAfter)
 		return ctrl.Result{RequeueAfter: requeueAfter}, nil
 	}
 
 	// Time to run the experiment
-	log.Info("Starting scheduled experiment", "schedule", experiment.Spec.Schedule)
+	log.Info("Starting scheduled experiment", "schedule", experiment.Spec.Schedule, "missedRun", missedRun)
 
 	// Start the experiment
 	result, err := r.startExperiment(ctx, experiment, log)
@@ -215,18 +240,22 @@ func (r *Reconciler) handleScheduledExperiment(ctx context.Context, experiment *
 	}
 
 	// Update last schedule time
-	lastScheduleTime := metav1.NewTime(now)
+	lastScheduleTime := metav1.Now()
 	experiment.Status.LastScheduleTime = &lastScheduleTime
+	experiment.Status.NextScheduleTime = &nextScheduleTimeMeta
 	if err := r.Status().Update(ctx, experiment); err != nil {
-		log.Error(err, "Failed to update last schedule time")
+		log.Error(err, "Failed to update schedule times")
 		return ctrl.Result{}, err
 	}
 
-	// For scheduled experiments, we don't track individual experiment states
-	// Just requeue for the next schedule
-	nextScheduleTime = schedule.Next(now)
+	// Requeue for next schedule
 	requeueAfter := nextScheduleTime.Sub(now)
 	log.Info("Scheduled experiment started, waiting for next schedule", "nextRun", nextScheduleTime)
+
+	// Clean up old experiments based on history limits
+	if err := r.cleanupExperimentHistory(ctx, experiment, log); err != nil {
+		log.Error(err, "Failed to cleanup experiment history")
+	}
 
 	return ctrl.Result{RequeueAfter: requeueAfter}, nil
 }
@@ -370,4 +399,95 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&fisv1alpha1.Experiment{}).
 		Named("experiment").
 		Complete(r)
+}
+
+// cleanupExperimentHistory cleans up old AWS FIS experiments based on history limits
+func (r *Reconciler) cleanupExperimentHistory(ctx context.Context, experiment *fisv1alpha1.Experiment, log logr.Logger) error {
+	// Only cleanup for scheduled experiments
+	if experiment.Spec.Schedule == "" {
+		return nil
+	}
+
+	templateID := experiment.Status.TemplateID
+	if templateID == "" {
+		return nil
+	}
+
+	// Get history limits with defaults
+	successLimit := int32(3)
+	failedLimit := int32(1)
+	if experiment.Spec.SuccessfulExperimentsHistoryLimit != nil {
+		successLimit = *experiment.Spec.SuccessfulExperimentsHistoryLimit
+	}
+	if experiment.Spec.FailedExperimentsHistoryLimit != nil {
+		failedLimit = *experiment.Spec.FailedExperimentsHistoryLimit
+	}
+
+	// List all experiments for this template
+	experiments, err := r.FISClient.ListExperimentsByTemplate(ctx, templateID)
+	if err != nil {
+		return fmt.Errorf("failed to list experiments: %w", err)
+	}
+
+	// Separate by state
+	var successful, failed []awsfis.ExperimentSummary
+	for _, exp := range experiments {
+		switch exp.State {
+		case "completed":
+			successful = append(successful, exp)
+		case "failed", "stopped":
+			failed = append(failed, exp)
+		}
+	}
+
+	// Sort by start time (newest first) and cleanup excess
+	sortByStartTimeDesc(successful)
+	sortByStartTimeDesc(failed)
+
+	// Log cleanup info
+	if len(successful) > int(successLimit) || len(failed) > int(failedLimit) {
+		log.Info("Cleaning up experiment history",
+			"successfulCount", len(successful),
+			"successfulLimit", successLimit,
+			"failedCount", len(failed),
+			"failedLimit", failedLimit)
+	}
+
+	// Note: AWS FIS doesn't provide DeleteExperiment API
+	// Experiments are automatically retained for 120 days
+	// We log which experiments would be cleaned up for visibility
+	if len(successful) > int(successLimit) {
+		toCleanup := successful[successLimit:]
+		for _, exp := range toCleanup {
+			log.Info("Experiment exceeds history limit (auto-cleanup by AWS after 120 days)",
+				"experimentID", exp.ID,
+				"state", exp.State,
+				"startTime", exp.StartTime)
+		}
+	}
+
+	if len(failed) > int(failedLimit) {
+		toCleanup := failed[failedLimit:]
+		for _, exp := range toCleanup {
+			log.Info("Experiment exceeds history limit (auto-cleanup by AWS after 120 days)",
+				"experimentID", exp.ID,
+				"state", exp.State,
+				"startTime", exp.StartTime)
+		}
+	}
+
+	return nil
+}
+
+// sortByStartTimeDesc sorts experiments by start time in descending order (newest first)
+func sortByStartTimeDesc(experiments []awsfis.ExperimentSummary) {
+	for i := 0; i < len(experiments)-1; i++ {
+		for j := i + 1; j < len(experiments); j++ {
+			iTime := experiments[i].StartTime
+			jTime := experiments[j].StartTime
+			if iTime == nil || (jTime != nil && jTime.After(*iTime)) {
+				experiments[i], experiments[j] = experiments[j], experiments[i]
+			}
+		}
+	}
 }

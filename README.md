@@ -133,7 +133,7 @@ apiVersion: fis.fis.dksshddl.dev/v1alpha1
 kind: ExperimentTemplate
 metadata:
   name: disk-stress-experiment
-  namespace: default
+  namespace: default b
 spec:
   description: "Inject disk I/O stress on nginx pods"
   

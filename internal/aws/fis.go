@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/retry"
@@ -299,6 +300,58 @@ func (c *FISClient) StopExperiment(ctx context.Context, experimentID string) err
 		return fmt.Errorf("failed to stop experiment: %w", err)
 	}
 
+	return nil
+}
+
+// ExperimentSummary contains summary information about an experiment
+type ExperimentSummary struct {
+	ID         string
+	TemplateID string
+	State      string
+	StartTime  *time.Time
+	EndTime    *time.Time
+}
+
+// ListExperimentsByTemplate lists all experiments for a given template ID
+func (c *FISClient) ListExperimentsByTemplate(ctx context.Context, templateID string) ([]ExperimentSummary, error) {
+	var experiments []ExperimentSummary
+	var nextToken *string
+
+	for {
+		input := &fis.ListExperimentsInput{
+			ExperimentTemplateId: aws.String(templateID),
+			NextToken:            nextToken,
+		}
+
+		output, err := c.client.ListExperiments(ctx, input)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list experiments: %w", err)
+		}
+
+		for _, exp := range output.Experiments {
+			summary := ExperimentSummary{
+				ID:         aws.ToString(exp.Id),
+				TemplateID: aws.ToString(exp.ExperimentTemplateId),
+				State:      string(exp.State.Status),
+				StartTime:  exp.CreationTime,
+			}
+			experiments = append(experiments, summary)
+		}
+
+		if output.NextToken == nil {
+			break
+		}
+		nextToken = output.NextToken
+	}
+
+	return experiments, nil
+}
+
+// DeleteExperiment deletes an AWS FIS experiment (only completed/stopped/failed experiments can be deleted)
+func (c *FISClient) DeleteExperiment(ctx context.Context, experimentID string) error {
+	// Note: AWS FIS doesn't have a DeleteExperiment API
+	// Experiments are automatically cleaned up by AWS after retention period
+	// This function is a no-op but kept for interface consistency
 	return nil
 }
 
