@@ -141,6 +141,7 @@ func (c *FISClient) CreateExperimentTemplate(ctx context.Context, template *fisv
 
 	// Add management tags to identify controller-managed resources
 	tags["ManagedBy"] = "aws-fis-controller"
+	tags["Name"] = fmt.Sprintf("%s:%s", template.Namespace, template.Name)
 	tags["kubernetes.io/name"] = template.Name
 	tags["kubernetes.io/namespace"] = template.Namespace
 
