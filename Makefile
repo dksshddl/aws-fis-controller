@@ -147,7 +147,12 @@ docker-build: ## Build docker image with the manager.
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
 	$(call ecr-login-if-needed)
-	$(CONTAINER_TOOL) push ${IMG}
+	@if [ "$(CONTAINER_TOOL)" = "podman" ]; then \
+		echo "Pushing manifest ${IMG}..."; \
+		$(CONTAINER_TOOL) manifest push ${IMG}; \
+	else \
+		$(CONTAINER_TOOL) push ${IMG}; \
+	fi
 
 # PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
 # architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
@@ -160,7 +165,15 @@ PLATFORMS ?= linux/arm64,linux/amd64
 docker-buildx: ## Build and push docker image for the manager for cross-platform support
 	@if [ "$(CONTAINER_TOOL)" = "podman" ]; then \
 		echo "Using podman for multi-platform build..."; \
-		$(CONTAINER_TOOL) build --platform=$(PLATFORMS) --tag ${IMG} .; \
+		echo "Platforms: $(PLATFORMS)"; \
+		$(CONTAINER_TOOL) manifest rm ${IMG} 2>/dev/null || true; \
+		$(CONTAINER_TOOL) manifest create ${IMG}; \
+		for platform in $$(echo "$(PLATFORMS)" | tr ',' ' '); do \
+			arch=$$(echo $$platform | cut -d'/' -f2); \
+			echo "Building for $$platform ($$arch)..."; \
+			$(CONTAINER_TOOL) build --platform=$$platform -t ${IMG}-$$arch .; \
+			$(CONTAINER_TOOL) manifest add ${IMG} ${IMG}-$$arch; \
+		done; \
 	else \
 		echo "Using docker buildx for multi-platform build..."; \
 		sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross; \
