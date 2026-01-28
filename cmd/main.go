@@ -39,7 +39,6 @@ import (
 	awsfis "fis.dksshddl.dev/fis-controller/internal/aws"
 	"fis.dksshddl.dev/fis-controller/internal/controller/experiment"
 	"fis.dksshddl.dev/fis-controller/internal/controller/experimenttemplate"
-	"fis.dksshddl.dev/fis-controller/internal/utils"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -74,12 +73,10 @@ func main() {
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
-	var fisNamespace string
 	var clusterName string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
-	flag.StringVar(&fisNamespace, "fis-namespace", "default", "The namespace where FIS pods will run and RBAC resources will be created.")
 	flag.StringVar(&clusterName, "cluster-name", "", "The EKS cluster name for FIS experiments.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
@@ -201,16 +198,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Setup RBAC for FIS pods
-	setupLog.Info("setting up RBAC for FIS pods", "namespace", fisNamespace)
-	ctx := ctrl.SetupSignalHandler()
-	if err := utils.SetupFISRBAC(ctx, fisNamespace); err != nil {
-		setupLog.Error(err, "unable to setup FIS RBAC")
-		os.Exit(1)
-	}
-
 	// Create FIS client
 	setupLog.Info("creating AWS FIS client")
+	ctx := ctrl.SetupSignalHandler()
 	fisClient, err := awsfis.NewFISClient(ctx, awsfis.FISConfig{
 		Region:     "", // Will auto-detect from environment
 		MaxRetries: 3,

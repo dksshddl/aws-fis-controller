@@ -14,7 +14,7 @@ spec:
     shortNames:
     - fisexp
     singular: experiment
-  scope: Namespaced
+  scope: Cluster
   versions:
   - additionalPrinterColumns:
     - jsonPath: .status.state

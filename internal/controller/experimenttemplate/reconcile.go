@@ -47,8 +47,8 @@ func (r *Reconciler) getRequiredParameters(ctx context.Context, template *fisv1a
 		if template.Status.RoleArn != "" {
 			roleArn = template.Status.RoleArn
 		} else {
-			// Create or get existing IAM role
-			createdRoleArn, err := awsfis.EnsureIAMRole(ctx, r.IAMClient, template.Namespace, template.Name, "")
+			// Create or get existing IAM role (cluster-scoped, no namespace)
+			createdRoleArn, err := awsfis.EnsureIAMRole(ctx, r.IAMClient, "", template.Name, "")
 			if err != nil {
 				return "", "", fmt.Errorf("failed to ensure IAM role: %w", err)
 			}
@@ -77,6 +77,21 @@ func (r *Reconciler) getRequiredParameters(ctx context.Context, template *fisv1a
 	return roleArn, clusterIdentifier, nil
 }
 
+// getTargetNamespaces extracts unique namespaces from targets
+func getTargetNamespaces(template *fisv1alpha1.ExperimentTemplate) []string {
+	namespaceSet := make(map[string]bool)
+	for _, target := range template.Spec.Targets {
+		if target.Namespace != "" {
+			namespaceSet[target.Namespace] = true
+		}
+	}
+	namespaces := make([]string, 0, len(namespaceSet))
+	for ns := range namespaceSet {
+		namespaces = append(namespaces, ns)
+	}
+	return namespaces
+}
+
 // createFISExperimentTemplate handles the creation of AWS FIS ExperimentTemplate
 func (r *Reconciler) createFISExperimentTemplate(ctx context.Context, template *fisv1alpha1.ExperimentTemplate, log logr.Logger) (ctrl.Result, error) {
 	log.Info("Creating AWS FIS ExperimentTemplate")
@@ -88,12 +103,22 @@ func (r *Reconciler) createFISExperimentTemplate(ctx context.Context, template *
 		return ctrl.Result{}, err
 	}
 
-	// Create Kubernetes RBAC resources (ServiceAccount, Role, RoleBinding)
-	log.Info("Creating Kubernetes RBAC resources for ExperimentTemplate")
-	serviceAccount, err := utils.SetupExperimentTemplateRBAC(ctx, r.Client, template.Namespace, template.Name)
-	if err != nil {
-		log.Error(err, "Failed to create Kubernetes RBAC resources")
-		return ctrl.Result{}, err
+	// Get target namespaces from targets
+	targetNamespaces := getTargetNamespaces(template)
+	if len(targetNamespaces) == 0 {
+		return ctrl.Result{}, fmt.Errorf("no target namespaces found in targets")
+	}
+
+	// Create Kubernetes RBAC resources in each target namespace
+	log.Info("Creating Kubernetes RBAC resources for ExperimentTemplate", "namespaces", targetNamespaces)
+	var serviceAccount string
+	for _, ns := range targetNamespaces {
+		sa, err := utils.SetupExperimentTemplateRBAC(ctx, r.Client, ns, template.Name)
+		if err != nil {
+			log.Error(err, "Failed to create Kubernetes RBAC resources", "namespace", ns)
+			return ctrl.Result{}, err
+		}
+		serviceAccount = sa // Use the same service account name pattern
 	}
 	log.Info("Successfully created Kubernetes RBAC resources", "serviceAccount", serviceAccount)
 
@@ -102,8 +127,10 @@ func (r *Reconciler) createFISExperimentTemplate(ctx context.Context, template *
 	if err != nil {
 		log.Error(err, "Failed to create AWS FIS ExperimentTemplate")
 		// Clean up RBAC resources on failure
-		if cleanupErr := utils.DeleteExperimentTemplateRBAC(ctx, r.Client, template.Namespace, template.Name); cleanupErr != nil {
-			log.Error(cleanupErr, "Failed to clean up RBAC resources after FIS template creation failure")
+		for _, ns := range targetNamespaces {
+			if cleanupErr := utils.DeleteExperimentTemplateRBAC(ctx, r.Client, ns, template.Name); cleanupErr != nil {
+				log.Error(cleanupErr, "Failed to clean up RBAC resources after FIS template creation failure", "namespace", ns)
+			}
 		}
 		// Update status with error
 		template.Status.Phase = "Failed"
@@ -194,12 +221,22 @@ func (r *Reconciler) updateFISExperimentTemplate(ctx context.Context, template *
 		return ctrl.Result{}, err
 	}
 
-	// Ensure Kubernetes RBAC resources exist (idempotent)
-	log.Info("Ensuring Kubernetes RBAC resources for ExperimentTemplate")
-	serviceAccount, err := utils.SetupExperimentTemplateRBAC(ctx, r.Client, template.Namespace, template.Name)
-	if err != nil {
-		log.Error(err, "Failed to ensure Kubernetes RBAC resources")
-		return ctrl.Result{}, err
+	// Get target namespaces from targets
+	targetNamespaces := getTargetNamespaces(template)
+	if len(targetNamespaces) == 0 {
+		return ctrl.Result{}, fmt.Errorf("no target namespaces found in targets")
+	}
+
+	// Ensure Kubernetes RBAC resources exist in each target namespace (idempotent)
+	log.Info("Ensuring Kubernetes RBAC resources for ExperimentTemplate", "namespaces", targetNamespaces)
+	var serviceAccount string
+	for _, ns := range targetNamespaces {
+		sa, err := utils.SetupExperimentTemplateRBAC(ctx, r.Client, ns, template.Name)
+		if err != nil {
+			log.Error(err, "Failed to ensure Kubernetes RBAC resources", "namespace", ns)
+			return ctrl.Result{}, err
+		}
+		serviceAccount = sa
 	}
 
 	// Update AWS FIS ExperimentTemplate
@@ -271,7 +308,7 @@ func (r *Reconciler) handleDeletion(ctx context.Context, template *fisv1alpha1.E
 	// Delete IAM Role if it was auto-created (check if RoleArn is in status)
 	if template.Status.RoleArn != "" {
 		// Only delete if it's an auto-created role (follows our naming pattern)
-		if err := awsfis.DeleteIAMRole(ctx, r.IAMClient, template.Namespace, template.Name); err != nil {
+		if err := awsfis.DeleteIAMRole(ctx, r.IAMClient, "", template.Name); err != nil {
 			log.Error(err, "Failed to delete IAM role")
 			// Don't fail the deletion if IAM role deletion fails
 			// Just log the error and continue
@@ -280,14 +317,17 @@ func (r *Reconciler) handleDeletion(ctx context.Context, template *fisv1alpha1.E
 		}
 	}
 
-	// Delete Kubernetes RBAC resources
-	log.Info("Deleting Kubernetes RBAC resources for ExperimentTemplate")
-	if err := utils.DeleteExperimentTemplateRBAC(ctx, r.Client, template.Namespace, template.Name); err != nil {
-		log.Error(err, "Failed to delete Kubernetes RBAC resources")
-		// Don't fail the deletion if RBAC cleanup fails
-		// Just log the error and continue
-	} else {
-		log.Info("Successfully deleted Kubernetes RBAC resources")
+	// Delete Kubernetes RBAC resources from all target namespaces
+	targetNamespaces := getTargetNamespaces(template)
+	log.Info("Deleting Kubernetes RBAC resources for ExperimentTemplate", "namespaces", targetNamespaces)
+	for _, ns := range targetNamespaces {
+		if err := utils.DeleteExperimentTemplateRBAC(ctx, r.Client, ns, template.Name); err != nil {
+			log.Error(err, "Failed to delete Kubernetes RBAC resources", "namespace", ns)
+			// Don't fail the deletion if RBAC cleanup fails
+			// Just log the error and continue
+		} else {
+			log.Info("Successfully deleted Kubernetes RBAC resources", "namespace", ns)
+		}
 	}
 
 	return ctrl.Result{}, nil

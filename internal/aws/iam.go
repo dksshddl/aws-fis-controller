@@ -205,8 +205,13 @@ func (c *IAMClient) RoleExists(ctx context.Context, roleName string) (bool, erro
 // GenerateRoleName generates a unique role name for an experiment template
 func GenerateRoleName(namespace, templateName string) string {
 	// IAM role names must be alphanumeric plus +=,.@-_ and max 64 chars
-	// Format: fis-<namespace>-<templateName>
-	roleName := fmt.Sprintf("fis-%s-%s", namespace, templateName)
+	// For cluster-scoped resources, namespace is empty
+	var roleName string
+	if namespace == "" {
+		roleName = fmt.Sprintf("fis-%s", templateName)
+	} else {
+		roleName = fmt.Sprintf("fis-%s-%s", namespace, templateName)
+	}
 
 	// Truncate if too long (max 64 chars)
 	if len(roleName) > 64 {

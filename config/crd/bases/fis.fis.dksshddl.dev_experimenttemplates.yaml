@@ -12,10 +12,9 @@ spec:
     listKind: ExperimentTemplateList
     plural: experimenttemplates
     shortNames:
-    - fisexp
     - fistemplate
     singular: experimenttemplate
-  scope: Namespaced
+  scope: Cluster
   versions:
   - additionalPrinterColumns:
     - jsonPath: .status.phase
@@ -313,8 +312,9 @@ spec:
                       pattern: ^[a-zA-Z0-9-]+$
                       type: string
                     namespace:
-                      default: default
-                      description: Namespace where the target pods are located
+                      description: Namespace where the target pods are located (required
+                        for cluster-scoped resource)
+                      minLength: 1
                       type: string
                     scope:
                       default: ALL
@@ -325,6 +325,7 @@ spec:
                   required:
                   - labelSelector
                   - name
+                  - namespace
                   type: object
                 minItems: 1
                 type: array

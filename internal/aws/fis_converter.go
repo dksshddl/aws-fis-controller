@@ -26,195 +26,160 @@ import (
 	fisv1alpha1 "fis.dksshddl.dev/fis-controller/api/v1alpha1"
 )
 
-// convertTargets converts CRD targets to AWS FIS targets
-func (c *FISClient) convertTargets(crdTargets []fisv1alpha1.TargetSpec, clusterIdentifier string) (map[string]types.CreateExperimentTemplateTargetInput, error) {
-	targets := make(map[string]types.CreateExperimentTemplateTargetInput)
+// ============================================================================
+// Internal data structures for common conversion logic
+// ============================================================================
 
-	for _, target := range crdTargets {
-		// Parse scope to AWS FIS selectionMode format
-		selectionMode := parseScope(target.Scope)
+type targetData struct {
+	selectionMode string
+	params        map[string]string
+	filters       []types.ExperimentTemplateTargetInputFilter
+}
 
-		fisTarget := types.CreateExperimentTemplateTargetInput{
-			ResourceType:  aws.String("aws:eks:pod"),
-			SelectionMode: aws.String(selectionMode),
-			Parameters:    make(map[string]string),
-		}
+type actionData struct {
+	actionID    string
+	description string
+	params      map[string]string
+	targets     map[string]string
+	startAfter  []string
+}
 
-		// Set cluster identifier
-		fisTarget.Parameters["clusterIdentifier"] = clusterIdentifier
+// ============================================================================
+// Common conversion logic (shared between Create and Update)
+// ============================================================================
 
-		// Set namespace
-		namespace := target.Namespace
-		if namespace == "" {
-			namespace = "default"
-		}
-		fisTarget.Parameters["namespace"] = namespace
-
-		// Set label selector
-		fisTarget.Parameters["selectorType"] = "labelSelector"
-
-		// Convert labelSelector map to string (e.g., "app=nginx,tier=frontend")
-		var selectorPairs []string
-		for key, value := range target.LabelSelector {
-			selectorPairs = append(selectorPairs, fmt.Sprintf("%s=%s", key, value))
-		}
-		fisTarget.Parameters["selectorValue"] = strings.Join(selectorPairs, ",")
-
-		// Set target container name if specified
-		if target.Container != "" {
-			fisTarget.Parameters["targetContainerName"] = target.Container
-		}
-
-		// Convert filters if present
-		if len(target.Filters) > 0 {
-			var filters []types.ExperimentTemplateTargetInputFilter
-			for _, filter := range target.Filters {
-				filters = append(filters, types.ExperimentTemplateTargetInputFilter{
-					Path:   aws.String(filter.Path),
-					Values: filter.Values,
-				})
-			}
-			fisTarget.Filters = filters
-		}
-
-		targets[target.Name] = fisTarget
+func (c *FISClient) buildTargetData(target fisv1alpha1.TargetSpec, clusterIdentifier string) targetData {
+	params := map[string]string{
+		"clusterIdentifier": clusterIdentifier,
+		"namespace":         defaultString(target.Namespace, "default"),
+		"selectorType":      "labelSelector",
+		"selectorValue":     buildLabelSelector(target.LabelSelector),
 	}
 
+	if target.Container != "" {
+		params["targetContainerName"] = target.Container
+	}
+
+	var filters []types.ExperimentTemplateTargetInputFilter
+	for _, f := range target.Filters {
+		filters = append(filters, types.ExperimentTemplateTargetInputFilter{
+			Path:   aws.String(f.Path),
+			Values: f.Values,
+		})
+	}
+
+	return targetData{
+		selectionMode: parseScope(target.Scope),
+		params:        params,
+		filters:       filters,
+	}
+}
+
+func (c *FISClient) buildActionData(action fisv1alpha1.ActionSpec, serviceAccount string) actionData {
+	params := map[string]string{
+		"duration": c.convertDuration(action.Duration),
+	}
+
+	if serviceAccount != "" {
+		params["kubernetesServiceAccount"] = serviceAccount
+	}
+
+	for k, v := range action.Parameters {
+		params[k] = v
+	}
+
+	return actionData{
+		actionID:    c.convertActionType(action.Type),
+		description: action.Description,
+		params:      params,
+		targets:     map[string]string{"Pods": action.Target},
+		startAfter:  action.StartAfter,
+	}
+}
+
+// ============================================================================
+// Create API converters
+// ============================================================================
+
+func (c *FISClient) convertTargets(crdTargets []fisv1alpha1.TargetSpec, clusterIdentifier string) (map[string]types.CreateExperimentTemplateTargetInput, error) {
+	targets := make(map[string]types.CreateExperimentTemplateTargetInput)
+	for _, t := range crdTargets {
+		data := c.buildTargetData(t, clusterIdentifier)
+		targets[t.Name] = types.CreateExperimentTemplateTargetInput{
+			ResourceType:  aws.String("aws:eks:pod"),
+			SelectionMode: aws.String(data.selectionMode),
+			Parameters:    data.params,
+			Filters:       data.filters,
+		}
+	}
 	return targets, nil
 }
 
-// parseScope converts user-friendly scope format to AWS FIS selectionMode
-// Examples:
-//   - "ALL" -> "ALL"
-//   - "3" -> "COUNT(3)"
-//   - "50%" -> "PERCENT(50)"
-func parseScope(scope string) string {
-	scope = strings.TrimSpace(scope)
-
-	if scope == "" || strings.ToUpper(scope) == "ALL" {
-		return "ALL"
-	}
-
-	// Check if it's a percentage (ends with %)
-	if strings.HasSuffix(scope, "%") {
-		percent := strings.TrimSuffix(scope, "%")
-		return fmt.Sprintf("PERCENT(%s)", strings.TrimSpace(percent))
-	}
-
-	// Otherwise treat as count
-	return fmt.Sprintf("COUNT(%s)", strings.TrimSpace(scope))
-}
-
-// convertActions converts CRD actions to AWS FIS actions
 func (c *FISClient) convertActions(crdActions []fisv1alpha1.ActionSpec, serviceAccount string) (map[string]types.CreateExperimentTemplateActionInput, error) {
 	actions := make(map[string]types.CreateExperimentTemplateActionInput)
-
-	for _, action := range crdActions {
-		fisAction := types.CreateExperimentTemplateActionInput{
-			ActionId:    aws.String(c.convertActionType(action.Type)),
-			Description: aws.String(action.Description),
-			Parameters:  make(map[string]string),
-			Targets:     make(map[string]string),
+	for _, a := range crdActions {
+		data := c.buildActionData(a, serviceAccount)
+		actions[a.Name] = types.CreateExperimentTemplateActionInput{
+			ActionId:    aws.String(data.actionID),
+			Description: aws.String(data.description),
+			Parameters:  data.params,
+			Targets:     data.targets,
+			StartAfter:  data.startAfter,
 		}
-
-		// Convert duration from Kubernetes format (5m) to AWS format (PT5M)
-		fisAction.Parameters["duration"] = c.convertDuration(action.Duration)
-
-		// Set kubernetes service account if provided
-		if serviceAccount != "" {
-			fisAction.Parameters["kubernetesServiceAccount"] = serviceAccount
-		}
-
-		// Copy other parameters
-		for key, value := range action.Parameters {
-			fisAction.Parameters[key] = value
-		}
-
-		// Set target reference
-		// AWS FIS uses "Pods" as the target key for EKS pod actions
-		fisAction.Targets["Pods"] = action.Target
-
-		// Set start after dependencies
-		if len(action.StartAfter) > 0 {
-			fisAction.StartAfter = action.StartAfter
-		}
-
-		actions[action.Name] = fisAction
 	}
-
 	return actions, nil
 }
 
-// convertStopConditions converts CRD stop conditions to AWS FIS stop conditions
 func (c *FISClient) convertStopConditions(crdConditions []fisv1alpha1.StopCondition) []types.CreateExperimentTemplateStopConditionInput {
 	var conditions []types.CreateExperimentTemplateStopConditionInput
-
-	for _, condition := range crdConditions {
-		fisCondition := types.CreateExperimentTemplateStopConditionInput{
-			Source: aws.String(c.convertStopConditionSource(condition.Source)),
+	for _, cond := range crdConditions {
+		input := types.CreateExperimentTemplateStopConditionInput{
+			Source: aws.String(c.convertStopConditionSource(cond.Source)),
 		}
-
-		if condition.Value != "" {
-			fisCondition.Value = aws.String(condition.Value)
+		if cond.Value != "" {
+			input.Value = aws.String(cond.Value)
 		}
-
-		conditions = append(conditions, fisCondition)
+		conditions = append(conditions, input)
 	}
-
 	return conditions
 }
 
-// convertExperimentOptions converts CRD experiment options to AWS FIS format
-func (c *FISClient) convertExperimentOptions(options *fisv1alpha1.ExperimentOptions) *types.CreateExperimentTemplateExperimentOptionsInput {
+func (c *FISClient) convertExperimentOptions(opts *fisv1alpha1.ExperimentOptions) *types.CreateExperimentTemplateExperimentOptionsInput {
 	return &types.CreateExperimentTemplateExperimentOptionsInput{
-		AccountTargeting:          types.AccountTargeting(options.AccountTargeting),
-		EmptyTargetResolutionMode: types.EmptyTargetResolutionMode(options.EmptyTargetResolutionMode),
+		AccountTargeting:          types.AccountTargeting(opts.AccountTargeting),
+		EmptyTargetResolutionMode: types.EmptyTargetResolutionMode(opts.EmptyTargetResolutionMode),
 	}
 }
 
-// convertLogConfiguration converts CRD log configuration to AWS FIS format
-func (c *FISClient) convertLogConfiguration(logConfig *fisv1alpha1.LogConfiguration) *types.CreateExperimentTemplateLogConfigurationInput {
-	config := &types.CreateExperimentTemplateLogConfigurationInput{
-		LogSchemaVersion: aws.Int32(int32(logConfig.LogSchemaVersion)),
+func (c *FISClient) convertLogConfiguration(cfg *fisv1alpha1.LogConfiguration) *types.CreateExperimentTemplateLogConfigurationInput {
+	input := &types.CreateExperimentTemplateLogConfigurationInput{
+		LogSchemaVersion: aws.Int32(int32(cfg.LogSchemaVersion)),
 	}
-
-	if logConfig.CloudWatchLogsConfiguration != nil {
-		config.CloudWatchLogsConfiguration = &types.ExperimentTemplateCloudWatchLogsLogConfigurationInput{
-			LogGroupArn: aws.String(logConfig.CloudWatchLogsConfiguration.LogGroupArn),
+	if cfg.CloudWatchLogsConfiguration != nil {
+		input.CloudWatchLogsConfiguration = &types.ExperimentTemplateCloudWatchLogsLogConfigurationInput{
+			LogGroupArn: aws.String(cfg.CloudWatchLogsConfiguration.LogGroupArn),
 		}
 	}
-
-	if logConfig.S3Configuration != nil {
-		config.S3Configuration = &types.ExperimentTemplateS3LogConfigurationInput{
-			BucketName: aws.String(logConfig.S3Configuration.BucketName),
-		}
-		if logConfig.S3Configuration.Prefix != "" {
-			config.S3Configuration.Prefix = aws.String(logConfig.S3Configuration.Prefix)
+	if cfg.S3Configuration != nil {
+		input.S3Configuration = &types.ExperimentTemplateS3LogConfigurationInput{
+			BucketName: aws.String(cfg.S3Configuration.BucketName),
+			Prefix:     aws.String(cfg.S3Configuration.Prefix),
 		}
 	}
-
-	return config
+	return input
 }
 
-// convertExperimentReportConfiguration converts CRD report configuration to AWS FIS format
-func (c *FISClient) convertExperimentReportConfiguration(reportConfig *fisv1alpha1.ExperimentReportConfiguration) *types.CreateExperimentTemplateReportConfigurationInput {
-	config := &types.CreateExperimentTemplateReportConfigurationInput{}
-
-	if reportConfig.PreExperimentDuration != "" {
-		config.PreExperimentDuration = aws.String(c.convertDuration(reportConfig.PreExperimentDuration))
+func (c *FISClient) convertExperimentReportConfiguration(cfg *fisv1alpha1.ExperimentReportConfiguration) *types.CreateExperimentTemplateReportConfigurationInput {
+	input := &types.CreateExperimentTemplateReportConfigurationInput{}
+	if cfg.PreExperimentDuration != "" {
+		input.PreExperimentDuration = aws.String(c.convertDuration(cfg.PreExperimentDuration))
 	}
-
-	if reportConfig.PostExperimentDuration != "" {
-		config.PostExperimentDuration = aws.String(c.convertDuration(reportConfig.PostExperimentDuration))
+	if cfg.PostExperimentDuration != "" {
+		input.PostExperimentDuration = aws.String(c.convertDuration(cfg.PostExperimentDuration))
 	}
-
-	// TODO: Implement DataSources and Outputs conversion
-	// The exact type names need to be verified from AWS SDK documentation
-
-	return config
+	return input
 }
 
-// convertTags converts CRD tags to AWS FIS tags
 func (c *FISClient) convertTags(crdTags []fisv1alpha1.Tag) map[string]string {
 	tags := make(map[string]string)
 	for _, tag := range crdTags {
@@ -223,148 +188,105 @@ func (c *FISClient) convertTags(crdTags []fisv1alpha1.Tag) map[string]string {
 	return tags
 }
 
-// convertTargetsForUpdate converts CRD targets to AWS FIS update targets
+// ============================================================================
+// Update API converters
+// ============================================================================
+
 func (c *FISClient) convertTargetsForUpdate(crdTargets []fisv1alpha1.TargetSpec, clusterIdentifier string) (map[string]types.UpdateExperimentTemplateTargetInput, error) {
 	targets := make(map[string]types.UpdateExperimentTemplateTargetInput)
-
-	for _, target := range crdTargets {
-		// Parse scope to AWS FIS selectionMode format
-		selectionMode := parseScope(target.Scope)
-
-		fisTarget := types.UpdateExperimentTemplateTargetInput{
+	for _, t := range crdTargets {
+		data := c.buildTargetData(t, clusterIdentifier)
+		targets[t.Name] = types.UpdateExperimentTemplateTargetInput{
 			ResourceType:  aws.String("aws:eks:pod"),
-			SelectionMode: aws.String(selectionMode),
-			Parameters:    make(map[string]string),
+			SelectionMode: aws.String(data.selectionMode),
+			Parameters:    data.params,
+			Filters:       data.filters,
 		}
-
-		// Set cluster identifier
-		fisTarget.Parameters["clusterIdentifier"] = clusterIdentifier
-
-		// Set namespace
-		namespace := target.Namespace
-		if namespace == "" {
-			namespace = "default"
-		}
-		fisTarget.Parameters["namespace"] = namespace
-
-		// Set label selector
-		fisTarget.Parameters["selectorType"] = "labelSelector"
-
-		// Convert labelSelector map to string
-		var selectorPairs []string
-		for key, value := range target.LabelSelector {
-			selectorPairs = append(selectorPairs, fmt.Sprintf("%s=%s", key, value))
-		}
-		fisTarget.Parameters["selectorValue"] = strings.Join(selectorPairs, ",")
-
-		// Set target container name if specified
-		if target.Container != "" {
-			fisTarget.Parameters["targetContainerName"] = target.Container
-		}
-
-		// Convert filters if present
-		if len(target.Filters) > 0 {
-			var filters []types.ExperimentTemplateTargetInputFilter
-			for _, filter := range target.Filters {
-				filters = append(filters, types.ExperimentTemplateTargetInputFilter{
-					Path:   aws.String(filter.Path),
-					Values: filter.Values,
-				})
-			}
-			fisTarget.Filters = filters
-		}
-
-		targets[target.Name] = fisTarget
 	}
-
 	return targets, nil
 }
 
-// convertActionsForUpdate converts CRD actions to AWS FIS update actions
 func (c *FISClient) convertActionsForUpdate(crdActions []fisv1alpha1.ActionSpec, serviceAccount string) (map[string]types.UpdateExperimentTemplateActionInputItem, error) {
 	actions := make(map[string]types.UpdateExperimentTemplateActionInputItem)
-
-	for _, action := range crdActions {
-		fisAction := types.UpdateExperimentTemplateActionInputItem{
-			ActionId:    aws.String(c.convertActionType(action.Type)),
-			Description: aws.String(action.Description),
-			Parameters:  make(map[string]string),
-			Targets:     make(map[string]string),
+	for _, a := range crdActions {
+		data := c.buildActionData(a, serviceAccount)
+		actions[a.Name] = types.UpdateExperimentTemplateActionInputItem{
+			ActionId:    aws.String(data.actionID),
+			Description: aws.String(data.description),
+			Parameters:  data.params,
+			Targets:     data.targets,
+			StartAfter:  data.startAfter,
 		}
-
-		// Convert duration from Kubernetes format (5m) to AWS format (PT5M)
-		fisAction.Parameters["duration"] = c.convertDuration(action.Duration)
-
-		// Set kubernetes service account if provided
-		if serviceAccount != "" {
-			fisAction.Parameters["kubernetesServiceAccount"] = serviceAccount
-		}
-
-		// Copy other parameters
-		for key, value := range action.Parameters {
-			fisAction.Parameters[key] = value
-		}
-
-		// Set target reference
-		fisAction.Targets["Pods"] = action.Target
-
-		// Set start after dependencies
-		if len(action.StartAfter) > 0 {
-			fisAction.StartAfter = action.StartAfter
-		}
-
-		actions[action.Name] = fisAction
 	}
-
 	return actions, nil
 }
 
-// convertStopConditionsForUpdate converts CRD stop conditions to AWS FIS update stop conditions
 func (c *FISClient) convertStopConditionsForUpdate(crdConditions []fisv1alpha1.StopCondition) []types.UpdateExperimentTemplateStopConditionInput {
 	var conditions []types.UpdateExperimentTemplateStopConditionInput
-
-	for _, condition := range crdConditions {
-		fisCondition := types.UpdateExperimentTemplateStopConditionInput{
-			Source: aws.String(c.convertStopConditionSource(condition.Source)),
+	for _, cond := range crdConditions {
+		input := types.UpdateExperimentTemplateStopConditionInput{
+			Source: aws.String(c.convertStopConditionSource(cond.Source)),
 		}
-
-		if condition.Value != "" {
-			fisCondition.Value = aws.String(condition.Value)
+		if cond.Value != "" {
+			input.Value = aws.String(cond.Value)
 		}
-
-		conditions = append(conditions, fisCondition)
+		conditions = append(conditions, input)
 	}
-
 	return conditions
 }
 
-// convertExperimentOptionsForUpdate converts CRD experiment options to AWS FIS update format
-func (c *FISClient) convertExperimentOptionsForUpdate(options *fisv1alpha1.ExperimentOptions) *types.UpdateExperimentTemplateExperimentOptionsInput {
+func (c *FISClient) convertExperimentOptionsForUpdate(opts *fisv1alpha1.ExperimentOptions) *types.UpdateExperimentTemplateExperimentOptionsInput {
 	return &types.UpdateExperimentTemplateExperimentOptionsInput{
-		EmptyTargetResolutionMode: types.EmptyTargetResolutionMode(options.EmptyTargetResolutionMode),
+		EmptyTargetResolutionMode: types.EmptyTargetResolutionMode(opts.EmptyTargetResolutionMode),
 	}
 }
 
-// convertLogConfigurationForUpdate converts CRD log configuration to AWS FIS update format
-func (c *FISClient) convertLogConfigurationForUpdate(logConfig *fisv1alpha1.LogConfiguration) *types.UpdateExperimentTemplateLogConfigurationInput {
-	config := &types.UpdateExperimentTemplateLogConfigurationInput{
-		LogSchemaVersion: aws.Int32(int32(logConfig.LogSchemaVersion)),
+func (c *FISClient) convertLogConfigurationForUpdate(cfg *fisv1alpha1.LogConfiguration) *types.UpdateExperimentTemplateLogConfigurationInput {
+	input := &types.UpdateExperimentTemplateLogConfigurationInput{
+		LogSchemaVersion: aws.Int32(int32(cfg.LogSchemaVersion)),
 	}
-
-	if logConfig.CloudWatchLogsConfiguration != nil {
-		config.CloudWatchLogsConfiguration = &types.ExperimentTemplateCloudWatchLogsLogConfigurationInput{
-			LogGroupArn: aws.String(logConfig.CloudWatchLogsConfiguration.LogGroupArn),
+	if cfg.CloudWatchLogsConfiguration != nil {
+		input.CloudWatchLogsConfiguration = &types.ExperimentTemplateCloudWatchLogsLogConfigurationInput{
+			LogGroupArn: aws.String(cfg.CloudWatchLogsConfiguration.LogGroupArn),
 		}
 	}
-
-	if logConfig.S3Configuration != nil {
-		config.S3Configuration = &types.ExperimentTemplateS3LogConfigurationInput{
-			BucketName: aws.String(logConfig.S3Configuration.BucketName),
-		}
-		if logConfig.S3Configuration.Prefix != "" {
-			config.S3Configuration.Prefix = aws.String(logConfig.S3Configuration.Prefix)
+	if cfg.S3Configuration != nil {
+		input.S3Configuration = &types.ExperimentTemplateS3LogConfigurationInput{
+			BucketName: aws.String(cfg.S3Configuration.BucketName),
+			Prefix:     aws.String(cfg.S3Configuration.Prefix),
 		}
 	}
+	return input
+}
 
-	return config
+// ============================================================================
+// Helper functions
+// ============================================================================
+
+// parseScope converts user-friendly scope format to AWS FIS selectionMode
+// Examples: "ALL" -> "ALL", "3" -> "COUNT(3)", "50%" -> "PERCENT(50)"
+func parseScope(scope string) string {
+	scope = strings.TrimSpace(scope)
+	if scope == "" || strings.EqualFold(scope, "ALL") {
+		return "ALL"
+	}
+	if strings.HasSuffix(scope, "%") {
+		return fmt.Sprintf("PERCENT(%s)", strings.TrimSuffix(scope, "%"))
+	}
+	return fmt.Sprintf("COUNT(%s)", scope)
+}
+
+func buildLabelSelector(labels map[string]string) string {
+	var pairs []string
+	for k, v := range labels {
+		pairs = append(pairs, fmt.Sprintf("%s=%s", k, v))
+	}
+	return strings.Join(pairs, ",")
+}
+
+func defaultString(val, def string) string {
+	if val == "" {
+		return def
+	}
+	return val
 }

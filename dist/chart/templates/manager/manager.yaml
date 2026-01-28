@@ -28,6 +28,9 @@ spec:
       containers:
         - name: manager
           args:
+            {{- if .Values.clusterName }}
+            - "--cluster-name={{ .Values.clusterName }}"
+            {{- end }}
             {{- range .Values.controllerManager.container.args }}
             - {{ . }}
             {{- end }}

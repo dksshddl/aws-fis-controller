@@ -1,0 +1,20 @@
+apiVersion: fis.fis.dksshddl.dev/v1alpha1
+kind: Experiment
+metadata:
+  labels:
+    app.kubernetes.io/name: aws-fis-controller
+  name: onetime-disk-stress-2
+  namespace: default
+spec:
+  # Reference ExperimentTemplate by name
+  experimentTemplate:
+    name: "disk-stress-experiment"
+  
+  # No schedule = one-time execution (Job mode)
+  # Experiment will start immediately when created
+  
+  tags:
+    - key: "Environment"
+      value: "test"
+    - key: "Type"
+      value: "one-time"

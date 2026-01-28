@@ -130,7 +130,7 @@ type ExperimentStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:shortName=fisexp
+// +kubebuilder:resource:scope=Cluster,shortName=fisexp
 // +kubebuilder:printcolumn:name="State",type=string,JSONPath=`.status.state`
 // +kubebuilder:printcolumn:name="Experiment ID",type=string,JSONPath=`.status.experimentId`
 // +kubebuilder:printcolumn:name="Template",type=string,JSONPath=`.spec.experimentTemplate.name`

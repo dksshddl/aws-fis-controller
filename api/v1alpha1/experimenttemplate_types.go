@@ -82,10 +82,10 @@ type TargetSpec struct {
 	// +required
 	Name string `json:"name"`
 
-	// Namespace where the target pods are located
-	// +kubebuilder:default=default
-	// +optional
-	Namespace string `json:"namespace,omitempty"`
+	// Namespace where the target pods are located (required for cluster-scoped resource)
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Namespace string `json:"namespace"`
 
 	// LabelSelector to select target pods (key-value pairs)
 	// +required
@@ -311,7 +311,7 @@ type ExperimentTemplateStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:shortName=fisexp;fistemplate
+// +kubebuilder:resource:scope=Cluster,shortName=fistemplate
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Template ID",type=string,JSONPath=`.status.templateId`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`

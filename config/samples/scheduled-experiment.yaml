@@ -4,9 +4,8 @@ metadata:
   labels:
     app.kubernetes.io/name: aws-fis-controller
   name: scheduled-disk-stress
-  namespace: default
 spec:
-  # Reference ExperimentTemplate by name
+  # Reference ExperimentTemplate by name (cluster-scoped)
   experimentTemplate:
     name: "disk-stress-experiment"
   
